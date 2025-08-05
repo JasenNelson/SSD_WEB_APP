@@ -117,11 +117,27 @@ if generate_button:
         col1, col2 = st.columns(2)
         col1.metric(label=f"HC{hcp_percentile:.1f}", value=f"{results['hcp']:.4g} mg/L")
         col2.metric(label=f"95% Confidence Interval", value=f"{results['hcp_ci_lower']:.4g} – {results['hcp_ci_upper']:.4g} mg/L")
+        
         st.subheader("Species Sensitivity Distribution Plot")
         ssd_fig = create_ssd_plot(results['plot_data'], results['hcp'], 'mg/L', plot_title)
         st.plotly_chart(ssd_fig, use_container_width=True)
-        img_bytes = ssd_fig.to_image(format="png", width=1200, height=700, scale=2)
-        st.download_button("📥 Download Plot (PNG)", data=img_bytes, file_name="ssd_plot.png", mime="image/png")
+        
+        # --- RESILIENT IMAGE EXPORT ---
+        try:
+            img_bytes = ssd_fig.to_image(format="png", width=1200, height=700, scale=2)
+            st.download_button(
+                label="📥 Download Plot (PNG)", 
+                data=img_bytes, 
+                file_name="ssd_plot.png", 
+                mime="image/png"
+            )
+        except Exception as e:
+            st.warning(
+                "Could not generate plot for download. This may be due to a temporary environment issue. "
+                "Please try rebooting the app from the Streamlit Cloud dashboard menu (☰).", 
+                icon="⚠️"
+            )
+            st.caption(f"Details: {e}")
     with tab2:
         # --- BUG FIX: Changed results['df'] to results['results_df'] ---
         diagnostics_df = render_diagnostics_table(results['results_df'], hcp_percentile)
