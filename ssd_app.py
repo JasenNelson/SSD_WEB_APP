@@ -81,12 +81,10 @@ if generate_button:
     if df.empty: st.error("No data could be loaded for the selected chemical(s)."); st.stop()
 
     with st.spinner("Processing data and running analysis..."):
-        # --- DEFINITIVE FIX: RESTORED THE ENTIRE MISSING DATA PROCESSING BLOCK ---
         proc_df = df[df['chemical_name'].isin(st.session_state.selected_chemicals)].copy()
         if 'media_type' in proc_df.columns and water_type != 'Both':
             proc_df = proc_df[proc_df['media_type'] == ('FW' if water_type == 'Freshwater (FW)' else 'MW')]
         if proc_df.empty: st.error("No data remains after applying filters."); st.stop()
-        
         proc_df['conc1_mean'] = pd.to_numeric(proc_df['conc1_mean'], errors='coerce')
         proc_df.dropna(subset=['conc1_mean', 'species_scientific_name'], inplace=True)
         if 'publication_year' in proc_df.columns:
@@ -94,7 +92,6 @@ if generate_button:
         else:
             proc_df['publication_year'] = np.nan
         proc_df['broad_group'] = proc_df['species_group'].apply(map_taxonomic_group)
-        
         if data_handling == 'Use Geometric Mean':
             proc_df['log_conc'] = np.log(proc_df['conc1_mean'])
             gmeans = proc_df.groupby('species_scientific_name')['log_conc'].mean().apply(np.exp)
@@ -107,7 +104,6 @@ if generate_button:
             latest_idx = proc_df.groupby('species_scientific_name')['conc1_mean'].idxmin().dropna()
             final_agg_data = proc_df.loc[latest_idx]
         final_agg_data.dropna(subset=['conc1_mean'], inplace=True)
-        # --- END OF FIX ---
 
         mode_arg = 'single' if analysis_mode == 'Single Distribution' else 'average'
         results, log_messages = run_ssd_analysis(data=final_agg_data, species_col='species_scientific_name', value_col='conc1_mean', p_value=hcp_percentile / 100, mode=mode_arg, selected_dist=selected_dist, n_boot=n_boot)
@@ -115,15 +111,22 @@ if generate_button:
 
     st.header("📈 Results")
     
+    # --- DEFINITIVE FIX FOR LONG FILE NAMES ---
+    # Create a safe, truncated title and file name
     chemical_title_str = ', '.join(st.session_state.selected_chemicals)
     if len(chemical_title_str) > 70:
         chemical_title_str = chemical_title_str[:70] + "..."
     plot_title = f"SSD for {chemical_title_str} ({analysis_mode.split(' ')[0]})"
     
     first_chemical_safe = "".join([c for c in st.session_state.selected_chemicals[0] if c.isalpha() or c.isdigit()]).rstrip()
-    file_name_str = f"{first_chemical_safe}_and_others" if len(st.session_state.selected_chemicals) > 1 else first_chemical_safe
+    if len(st.session_state.selected_chemicals) > 1:
+        file_name_str = f"{first_chemical_safe}_and_{len(st.session_state.selected_chemicals)-1}_others"
+    else:
+        file_name_str = first_chemical_safe
+    
     timestamp = datetime.datetime.now().strftime("%Y%m%d")
     safe_filename_base = f"SSD_{file_name_str[:50]}_{timestamp}"
+    # --- END OF FIX ---
     
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary & Plot", "🔎 Model Diagnostics", "📋 Final Data", "⚙️ Processing Log"])
 
@@ -142,6 +145,7 @@ if generate_button:
             st.download_button("📥 Download Plot (PNG)", data=img_bytes, file_name=f"{safe_filename_base}.png", mime="image/png")
         except Exception as e:
             st.warning("Could not generate plot for download.", icon="⚠️")
+            st.caption(f"Details: {e}")
 
     with tab2:
         diagnostics_df = render_diagnostics_table(results['results_df'], hcp_percentile)
