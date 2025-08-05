@@ -1,4 +1,4 @@
-# packages.txt
 ffmpeg
 libsm6
 libxext6
+chromium-driver
