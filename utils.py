@@ -3,9 +3,9 @@ import numpy as np
 
 TAXONOMIC_MAPPING = {
     'Fish': ['Fish'],
-    'Invertebrate': ['Aquatic Invertebrates', 'Invertebrates', 'Crustaceans', 'Crustacean', 'Insects', 'Molluscs', 'Mollusc', 'Worms', 'Zooplankton'],
-    'Plant': ['Algae', 'Aquatic Plants', 'Plants (Seedlings)', 'Plants', 'Algae/Plants'],
-    'Amphibian': ['Amphibians']
+    'Invertebrate': ['Invertebrate', 'Aquatic Invertebrates', 'Invertebrates', 'Crustaceans', 'Crustacean', 'Insects', 'Molluscs', 'Mollusc', 'Worms', 'Zooplankton'],
+    'Plant': ['Plant', 'Algae', 'Aquatic Plants', 'Plants (Seedlings)', 'Plants', 'Algae/Plants'],
+    'Amphibian': ['Amphibian', 'Amphibians']
 }
 
 def map_taxonomic_group(ecotox_group):
