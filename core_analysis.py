@@ -32,8 +32,9 @@ def _fit_single_distribution(dist_name, model_info, data, p_value):
     ad_stat = stats.anderson(target_data, dist=model_info['scipy_name'])[0] if model_info['scipy_name'] in supported_ad else np.nan
     return {'name': dist_name, 'params': params, 'aicc': aicc, 'hcp': hcp, 'ks_pvalue': ks_pvalue, 'ad_statistic': ad_stat, 'dist_obj': model_info['dist'], 'is_log': model_info['log']}
 
-#@st.cache_data(show_spinner=False)
-def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', selected_dist=None, n_boot=1000):
+# CHANGED: The @st.cache_data decorator is removed.
+# CHANGED: The 'progress_bar=None' argument is added.
+def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', selected_dist=None, n_boot=1000, progress_bar=None):
     valid_data_df = data[data[value_col] > 0].copy()
     valid_data = valid_data_df[value_col]
     if len(valid_data) < 5: return None, ["Not enough valid data points (minimum 5 required)."]
@@ -47,8 +48,6 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
         try:
             fit = _fit_single_distribution(name, DISTRIBUTIONS[name], valid_data, p_value)
             model_fits.append(fit)
-            if progress_bar:
-                progress_bar.progress((i + 1) / n_boot, text=f"Running bootstrap iteration {i+1} of {n_boot}")
         except Exception as e:
             log_messages.append(f"Warning: Could not fit '{name}' to the original data. It will be excluded. Details: {e}")
     if not model_fits: return None, ["Failed to fit any distributions to the original data."]
@@ -101,6 +100,11 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
                 cdf_vals = row['dist_obj'].cdf(x_range_log, *row['params']) if row['is_log'] else row['dist_obj'].cdf(np.exp(x_range_log), *row['params'])
                 b_avg_cdf += row['weight'] * cdf_vals
             boot_cdfs.append(b_avg_cdf)
+            
+            # CHANGED: This block was added to update the progress bar.
+            if progress_bar:
+                progress_bar.progress((i + 1) / n_boot, text=f"Running bootstrap iteration {i+1} of {n_boot}")
+
         except Exception as e:
             # Catch any unexpected errors from the main loop
             log_messages.append(f"Warning: A bootstrap iteration failed unexpectedly. Details: {e}")
