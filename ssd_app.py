@@ -1,158 +1,165 @@
 # ssd_app.py
 import streamlit as st
 import pandas as pd
-from scipy import stats
-import datetime
-import numpy as np
-
-from utils import map_taxonomic_group, convert_df_to_csv
 from database import initialize_supabase, search_chemicals_in_db, fetch_data_for_chemicals
-from core_analysis import run_ssd_analysis, DISTRIBUTIONS
+from core_analysis import run_ssd_analysis
 from ui_components import create_ssd_plot, render_diagnostics_table
+from utils import convert_df_to_csv, map_taxonomic_group
 
-st.set_page_config(layout="wide", page_title="Professional SSD Generator")
+# --- PAGE CONFIGURATION ---
+st.set_page_config(page_title="Species Sensitivity Distribution (SSD) Generator", layout="wide")
+st.title("Species Sensitivity Distribution (SSD) Generator")
 
-if 'search_results' not in st.session_state: st.session_state.search_results = []
-if 'selected_chemicals' not in st.session_state: st.session_state.selected_chemicals = []
+# --- INITIALIZATION ---
+st.session_state.setdefault('selected_chemicals', [])
+supabase_client = initialize_supabase()
 
-st.title("Professional Species Sensitivity Distribution (SSD) Generator")
-st.markdown("A `ssdtools`-aligned analysis tool with model averaging and power-user features.")
-
-supabase_conn = initialize_supabase()
-
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("⚙️ Configuration")
-    data_source = st.radio("1. Data Source", ("Database", "File Upload"), horizontal=True, key="data_source")
-    
-    st.subheader("2. Chemical Selection")
-    if data_source == "Database":
-        if supabase_conn:
-            search_term = st.text_input("Search for chemicals")
-            if st.button("Search"):
-                with st.spinner("Searching..."):
-                    st.session_state.search_results = search_chemicals_in_db(supabase_conn, search_term)
-            
-            options = sorted(list(set(st.session_state.selected_chemicals + st.session_state.search_results)))
-            
-            st.write("Select chemicals from the list below:")
-            select_all = st.checkbox("Select all search results")
-            if select_all:
-                st.session_state.selected_chemicals = st.multiselect("Selected Chemicals", options=options, default=options)
-            else:
-                st.session_state.selected_chemicals = st.multiselect("Selected Chemicals", options=options, default=st.session_state.selected_chemicals)
-        else: st.error("Database connection unavailable.")
-    else: # File Upload
-        uploaded_file = st.file_uploader("Upload Data (CSV)", type=["csv"])
-        if uploaded_file:
-            try:
-                temp_df = pd.read_csv(uploaded_file, encoding='utf-8', encoding_errors='replace')
-                if 'chemical_name' in temp_df.columns:
-                    chem_options = sorted(temp_df['chemical_name'].dropna().unique())
-                    select_all_file = st.checkbox("Select all chemicals from file")
-                    if select_all_file:
-                        st.session_state.selected_chemicals = st.multiselect("Selected Chemicals", options=chem_options, default=chem_options)
-                    else:
-                        st.session_state.selected_chemicals = st.multiselect("Selected Chemicals", options=chem_options, default=st.session_state.selected_chemicals)
-                else: st.warning("File must contain a 'chemical_name' column.")
-            except Exception as e: st.error(f"Error reading file: {e}")
+    st.header("1. Data Source")
+    data_source = st.radio("Choose data source", ["Database Search", "Upload File"], horizontal=True)
 
-    st.subheader("3. Analysis Options")
-    analysis_mode = st.radio("Analysis Mode", ('Model Averaging (Recommended)', 'Single Distribution'), horizontal=True)
-    selected_dist = st.selectbox("Select Distribution", options=list(DISTRIBUTIONS.keys())) if analysis_mode == 'Single Distribution' else None
-    
-    with st.expander("Advanced Analysis Settings"):
-        n_boot = st.slider("Bootstrap Iterations", min_value=100, max_value=5000, value=1000, step=100, help="Fewer iterations are faster but less precise.")
-        hcp_percentile = st.number_input("HCp Percentile (%)", 1.0, 50.0, 5.0, 0.5, "%.1f")
-        water_type = st.radio("Water Type", ('Freshwater (FW)', 'Marine Water (MW)', 'Both'), horizontal=True)
-        data_handling = st.radio("Handle Multiple Values per Species", ('Use Geometric Mean', 'Use Most Sensitive'), horizontal=True, index=0)
-    
+    st.header("2. Chemical Selection")
+    if data_source == "Database Search":
+        if supabase_client:
+            search_term = st.text_input("Search for a chemical in the database:", key="search_term")
+            if search_term:
+                st.session_state.chemical_options = search_chemicals_in_db(supabase_client, search_term)
+                st.multiselect("Select chemicals for analysis:", st.session_state.chemical_options, key="selected_chemicals")
+        else:
+            st.warning("Database connection failed. Please check your credentials.")
+    else:
+        uploaded_file = st.file_uploader("Upload a CSV file", type=['csv'])
+        if uploaded_file:
+            df_upload = pd.read_csv(uploaded_file)
+            st.session_state.chemical_options = df_upload['chemical_name'].unique().tolist()
+            st.multiselect("Select chemicals from your file:", st.session_state.chemical_options, key="selected_chemicals")
+
+    st.header("3. Guideline & Filter Options")
+    water_type = st.selectbox("Filter by Water Type:", ["Freshwater (FW)", "Marine (MW)", "Both"])
+
+    st.header("4. SSD Parameters")
+    agg_method = st.selectbox("Handle multiple values per species:", ["Geometric Mean", "Most Sensitive (Minimum)"])
+    analysis_mode = st.selectbox("Analysis Mode:", ["Model Averaging", "Single Distribution"])
+    if analysis_mode == 'Single Distribution':
+        selected_dist = st.selectbox("Select Distribution:", ['Log-Normal', 'Log-Logistic', 'Weibull', 'Gamma'])
+    else:
+        selected_dist = None
+
+    st.header("5. Protection & Safety")
+    hcp_percentile = st.number_input("Hazard Concentration (HCp) Percentile (%)", min_value=0.1, max_value=99.9, value=5.0, step=0.1, format="%.1f")
+    n_boot = st.slider("Number of Bootstrap Iterations", min_value=100, max_value=10000, value=1000, step=100)
+
     generate_button = st.button("Generate SSD", type="primary", use_container_width=True)
 
+# --- MAIN PANEL ---
+if not st.session_state.selected_chemicals:
+    st.info("Please select a data source and at least one chemical to begin the analysis.")
+    st.stop()
+
 if generate_button:
-    if not st.session_state.selected_chemicals: st.warning("Please select at least one chemical."); st.stop()
-    
-    df = None
-    if st.session_state.data_source == "File Upload":
-        if 'uploaded_file' in locals() and uploaded_file:
-            uploaded_file.seek(0); df = pd.read_csv(uploaded_file, encoding='utf-8', encoding_errors='replace')
-        else: st.warning("Please upload a file."); st.stop()
+    if data_source == "Database Search" and supabase_client:
+        df = fetch_data_for_chemicals(supabase_client, st.session_state.selected_chemicals)
+    elif data_source == "Upload File" and uploaded_file is not None:
+        df = df_upload.copy()
     else:
-        df = fetch_data_for_chemicals(supabase_conn, st.session_state.selected_chemicals)
-    if df.empty: st.error("No data could be loaded for the selected chemical(s)."); st.stop()
-
-    with st.spinner("Processing data and running analysis..."):
-        proc_df = df[df['chemical_name'].isin(st.session_state.selected_chemicals)].copy()
-        if 'media_type' in proc_df.columns and water_type != 'Both':
-            proc_df = proc_df[proc_df['media_type'] == ('FW' if water_type == 'Freshwater (FW)' else 'MW')]
-        if 'endpoint' in proc_df.columns:
-            proc_df = proc_df[proc_df['endpoint'].str.upper() != 'NR']
-        if proc_df.empty: st.error("No data remains after applying filters."); st.stop()
-        proc_df['conc1_mean'] = pd.to_numeric(proc_df['conc1_mean'], errors='coerce')
-        proc_df.dropna(subset=['conc1_mean', 'species_scientific_name'], inplace=True)
-        if 'publication_year' in proc_df.columns:
-            proc_df['publication_year'] = pd.to_numeric(proc_df['publication_year'], errors='coerce')
-        else:
-            proc_df['publication_year'] = np.nan
-        proc_df['broad_group'] = proc_df['species_group'].apply(map_taxonomic_group)
-        if data_handling == 'Use Geometric Mean':
-            proc_df['log_conc'] = np.log(proc_df['conc1_mean'])
-            gmeans = proc_df.groupby('species_scientific_name')['log_conc'].mean().apply(np.exp)
-            latest_idx = proc_df.groupby('species_scientific_name')['publication_year'].idxmax().dropna()
-            source_info = proc_df.loc[latest_idx].set_index('species_scientific_name')
-            final_agg_data = source_info.copy()
-            final_agg_data['conc1_mean'] = gmeans
-            final_agg_data.reset_index(inplace=True)
-        else:
-            latest_idx = proc_df.groupby('species_scientific_name')['conc1_mean'].idxmin().dropna()
-            final_agg_data = proc_df.loc[latest_idx]
-        final_agg_data.dropna(subset=['conc1_mean'], inplace=True)
-
-        mode_arg = 'single' if analysis_mode == 'Single Distribution' else 'average'
-        results, log_messages = run_ssd_analysis(data=final_agg_data, species_col='species_scientific_name', value_col='conc1_mean', p_value=hcp_percentile / 100, mode=mode_arg, selected_dist=selected_dist, n_boot=n_boot)
-        if not results: st.error(f"SSD Calculation Error: {log_messages[0]}"); st.stop()
+        st.error("Please select a valid data source and chemicals.")
+        st.stop()
+    
+    if df.empty:
+        st.error("No data could be retrieved for the selected chemicals. Please try a different selection.")
+        st.stop()
 
     st.header("📈 Results")
-    
-    # --- DEFINITIVE FIX FOR LONG FILE NAMES ---
-    # Create a safe, truncated title and file name
-    chemical_title_str = ', '.join(st.session_state.selected_chemicals)
-    if len(chemical_title_str) > 70:
-        chemical_title_str = chemical_title_str[:70] + "..."
-    plot_title = f"SSD for {chemical_title_str} ({analysis_mode.split(' ')[0]})"
-    
-    first_chemical_safe = "".join([c for c in st.session_state.selected_chemicals[0] if c.isalpha() or c.isdigit()]).rstrip()
-    if len(st.session_state.selected_chemicals) > 1:
-        file_name_str = f"{first_chemical_safe}_and_{len(st.session_state.selected_chemicals)-1}_others"
-    else:
-        file_name_str = first_chemical_safe
-    
-    timestamp = datetime.datetime.now().strftime("%Y%m%d")
-    safe_filename_base = f"SSD_{file_name_str[:50]}_{timestamp}"
-    # --- END OF FIX ---
-    
+
+    # CHANGED: Replaced the simple spinner with a more detailed status indicator
+    with st.status("Processing data and running analysis...", expanded=True) as status:
+        st.write("Filtering and preparing data...")
+        proc_df = df[df['chemical_name'].isin(st.session_state.selected_chemicals)].copy()
+
+        if 'media_type' in proc_df.columns and water_type != 'Both':
+            proc_df = proc_df[proc_df['media_type'] == ('FW' if water_type == 'Freshwater (FW)' else 'MW')]
+        
+        # CHANGED: A more robust filter that excludes any endpoint starting with 'NR' (case-insensitive)
+        if 'endpoint' in proc_df.columns:
+            # The ~ symbol means "NOT", so we keep rows that DO NOT start with 'NR'.
+            proc_df = proc_df[~proc_df['endpoint'].astype(str).str.upper().str.startswith('NR')]
+
+        if proc_df.empty:
+            status.update(label="Analysis Failed!", state="error", expanded=True)
+            st.error("No data remains after applying filters.")
+            st.stop()
+
+        proc_df['conc1_mean'] = pd.to_numeric(proc_df['conc1_mean'], errors='coerce')
+        proc_df.dropna(subset=['conc1_mean', 'species_scientific_name'], inplace=True)
+        
+        # Map to broad groups for plotting
+        proc_df['broad_group'] = proc_df['species_group'].apply(map_taxonomic_group)
+        
+        # Aggregate data per species
+        if agg_method == 'Geometric Mean':
+            agg_func = lambda x: pd.Series({
+                'conc1_mean': x['conc1_mean'].prod()**(1/len(x)),
+                'endpoint': x['endpoint'].iloc[0],
+                'publication_year': x['publication_year'].iloc[0],
+                'author': x['author'].iloc[0],
+                'title': x['title'].iloc[0],
+                'chemical_name': x['chemical_name'].iloc[0],
+                'broad_group': x['broad_group'].iloc[0]
+            })
+            final_agg_data = proc_df.groupby('species_scientific_name').apply(agg_func).reset_index()
+        else: # Most Sensitive (Minimum)
+            final_agg_data = proc_df.loc[proc_df.groupby('species_scientific_name')['conc1_mean'].idxmin()]
+        
+        st.write("Fitting distributions and starting bootstrap analysis...")
+        
+        # NEW: Create a progress bar to show analysis progress
+        progress_bar = st.progress(0, text="Bootstrap analysis starting...")
+        mode_arg = 'single' if analysis_mode == 'Single Distribution' else 'average'
+        
+        # CHANGED: Pass the progress_bar object to the analysis function
+        results, log_messages = run_ssd_analysis(
+            data=final_agg_data,
+            species_col='species_scientific_name',
+            value_col='conc1_mean',
+            p_value=hcp_percentile / 100,
+            mode=mode_arg,
+            selected_dist=selected_dist,
+            n_boot=n_boot,
+            progress_bar=progress_bar
+        )
+        
+        if not results:
+            status.update(label="Analysis Failed!", state="error", expanded=True)
+            st.error(f"SSD Calculation Error: {log_messages[0]}")
+            st.stop()
+        
+        status.update(label="Analysis Complete!", state="complete", expanded=False)
+
+    # --- RESULTS DISPLAY ---
+    p_value = results['plot_data']['p_value']
+    hcp_value = results['hcp']
+    ci_lower, ci_upper = results['hcp_ci_lower'], results['hcp_ci_upper']
+
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary & Plot", "🔎 Model Diagnostics", "📋 Final Data", "⚙️ Processing Log"])
 
     with tab1:
-        st.subheader("Hazard Concentration Summary")
-        col1, col2 = st.columns(2)
-        col1.metric(label=f"HC{hcp_percentile:.1f}", value=f"{results['hcp']:.4g} mg/L")
-        col2.metric(label=f"95% Confidence Interval", value=f"{results['hcp_ci_lower']:.4g} – {results['hcp_ci_upper']:.4g} mg/L")
+        st.subheader(f"Hazard Concentration (HC{p_value*100:.0f}) Summary")
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric(f"HC{p_value*100:.0f} Estimate", f"{hcp_value:.3g} mg/L")
+        col2.metric("95% Lower CI", f"{ci_lower:.3g} mg/L")
+        col3.metric("95% Upper CI", f"{ci_upper:.3g} mg/L")
         
         st.subheader("Species Sensitivity Distribution Plot")
-        ssd_fig = create_ssd_plot(results['plot_data'], results['hcp'], 'mg/L', plot_title)
+        plot_title = f"SSD for {', '.join(st.session_state.selected_chemicals)}"
+        ssd_fig = create_ssd_plot(results['plot_data'], hcp_value, "mg/L", plot_title)
         st.plotly_chart(ssd_fig, use_container_width=True)
-        
-        try:
-            img_bytes = ssd_fig.to_image(format="png", width=1200, height=700, scale=2)
-            st.download_button("📥 Download Plot (PNG)", data=img_bytes, file_name=f"{safe_filename_base}.png", mime="image/png")
-        except Exception as e:
-            st.warning("Could not generate plot for download.", icon="⚠️")
-            st.caption(f"Details: {e}")
 
     with tab2:
-        diagnostics_df = render_diagnostics_table(results['results_df'], hcp_percentile)
-        csv_data = convert_df_to_csv(diagnostics_df)
-        st.download_button("📥 Export Diagnostics to CSV", data=csv_data, file_name=f"{safe_filename_base}_diagnostics.csv", mime="text/csv")
+        st.subheader("Model Goodness-of-Fit Diagnostics")
+        diagnostics_df = render_diagnostics_table(results['results_df'], p_value*100)
+        st.download_button("Download Diagnostics (CSV)", convert_df_to_csv(diagnostics_df), "diagnostics.csv", "text/csv", use_container_width=True)
 
     with tab3:
         st.subheader("Aggregated Data with Source Information")
@@ -160,12 +167,12 @@ if generate_button:
         display_cols = [col for col in source_cols if col in final_agg_data.columns]
         display_df = final_agg_data[display_cols].rename(columns={'conc1_mean': 'Value (mg/L)', 'species_scientific_name': 'Species', 'broad_group': 'Group', 'chemical_name': 'Chemical'})
         st.dataframe(display_df, use_container_width=True)
-        csv_data = convert_df_to_csv(display_df)
-        st.download_button("📥 Export Final Data to CSV", data=csv_data, file_name=f"{safe_filename_base}_final_data.csv", mime="text/csv")
+        st.download_button("Download Final Data (CSV)", convert_df_to_csv(display_df), "final_data.csv", "text/csv", use_container_width=True)
 
     with tab4:
-        st.subheader("Analysis Log")
+        st.subheader("Analysis Processing Log")
         if log_messages:
-            for msg in log_messages: st.warning(msg)
+            for msg in log_messages:
+                st.info(msg)
         else:
-            st.success("Analysis completed successfully.")
+            st.success("No warnings or errors reported during analysis.")
