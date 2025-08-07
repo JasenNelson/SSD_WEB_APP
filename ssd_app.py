@@ -84,6 +84,8 @@ if generate_button:
         proc_df = df[df['chemical_name'].isin(st.session_state.selected_chemicals)].copy()
         if 'media_type' in proc_df.columns and water_type != 'Both':
             proc_df = proc_df[proc_df['media_type'] == ('FW' if water_type == 'Freshwater (FW)' else 'MW')]
+        if 'endpoint' in proc_df.columns:
+            proc_df = proc_df[proc_df['endpoint'].str.upper() != 'NR']
         if proc_df.empty: st.error("No data remains after applying filters."); st.stop()
         proc_df['conc1_mean'] = pd.to_numeric(proc_df['conc1_mean'], errors='coerce')
         proc_df.dropna(subset=['conc1_mean', 'species_scientific_name'], inplace=True)
