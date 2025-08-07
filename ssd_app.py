@@ -25,6 +25,11 @@ with st.sidebar:
             search_term = st.text_input("Search for a chemical in the database:", key="search_term")
             if search_term:
                 st.session_state.chemical_options = search_chemicals_in_db(supabase_client, search_term)
+                
+                # NEW: Restored "Select All" functionality
+                if st.checkbox("Select All Chemicals", key="select_all_db"):
+                    st.session_state.selected_chemicals = st.session_state.chemical_options
+                
                 st.multiselect("Select chemicals for analysis:", st.session_state.chemical_options, key="selected_chemicals")
         else:
             st.warning("Database connection failed. Please check your credentials.")
@@ -33,6 +38,11 @@ with st.sidebar:
         if uploaded_file:
             df_upload = pd.read_csv(uploaded_file)
             st.session_state.chemical_options = df_upload['chemical_name'].unique().tolist()
+
+            # NEW: Restored "Select All" functionality
+            if st.checkbox("Select All Chemicals", key="select_all_upload"):
+                st.session_state.selected_chemicals = st.session_state.chemical_options
+
             st.multiselect("Select chemicals from your file:", st.session_state.chemical_options, key="selected_chemicals")
 
     st.header("3. Guideline & Filter Options")
