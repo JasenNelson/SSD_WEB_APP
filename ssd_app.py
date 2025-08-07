@@ -1,6 +1,7 @@
 # ssd_app.py
 import streamlit as st
 import pandas as pd
+import numpy as np  # Ensure numpy is imported
 from database import initialize_supabase, search_chemicals_in_db, fetch_data_for_chemicals
 from core_analysis import run_ssd_analysis
 from ui_components import create_ssd_plot, render_diagnostics_table
@@ -106,18 +107,20 @@ if generate_button:
         # Map to broad groups for plotting
         proc_df['broad_group'] = proc_df['species_group'].apply(map_taxonomic_group)
         
+        # --- FIXED: Switched to a numerically stable aggregation method ---
         # Aggregate data per species
         if agg_method == 'Geometric Mean':
-            agg_func = lambda x: pd.Series({
-                'conc1_mean': x['conc1_mean'].prod()**(1/len(x)),
-                'endpoint': x['endpoint'].iloc[0],
-                'publication_year': x['publication_year'].iloc[0],
-                'author': x['author'].iloc[0],
-                'title': x['title'].iloc[0],
-                'chemical_name': x['chemical_name'].iloc[0],
-                'broad_group': x['broad_group'].iloc[0]
-            })
-            final_agg_data = proc_df.groupby('species_scientific_name').apply(agg_func).reset_index()
+            # This method avoids the FutureWarning and is numerically stable, preventing overflow errors.
+            agg_dict = {
+                'conc1_mean': lambda x: np.exp(np.log(x).mean()),
+                'endpoint': 'first',
+                'publication_year': 'first',
+                'author': 'first',
+                'title': 'first',
+                'chemical_name': 'first',
+                'broad_group': 'first'
+            }
+            final_agg_data = proc_df.groupby('species_scientific_name', as_index=False).agg(agg_dict)
         else: # Most Sensitive (Minimum)
             final_agg_data = proc_df.loc[proc_df.groupby('species_scientific_name')['conc1_mean'].idxmin()]
         
@@ -141,7 +144,7 @@ if generate_button:
         
         if not results:
             status.update(label="Analysis Failed!", state="error", expanded=True)
-            st.error(f"SSD Calculation Error: {log_messages[0]}")
+            st.error(f"SSD Calculation Error: {log_messages[0] if log_messages else 'Unknown error.'}")
             st.stop()
         
         status.update(label="Analysis Complete!", state="complete", expanded=False)
