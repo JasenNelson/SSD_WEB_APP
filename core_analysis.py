@@ -51,6 +51,9 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
         if name not in DISTRIBUTIONS: continue
         try:
             fit = _fit_single_distribution(name, DISTRIBUTIONS[name], valid_data, p_value)
+            if not fit or not np.isfinite(fit['hcp']) or fit['hcp'] <= 0:
+                log_messages.append(f"Warning: Could not derive a valid positive HCp for the '{name}' distribution. It will be excluded from model averaging.")
+                continue # Skip to the next distribution
             model_fits.append(fit)
         except Exception as e:
             log_messages.append(f"Warning: Could not fit '{name}' to the original data. It will be excluded. Details: {e}")

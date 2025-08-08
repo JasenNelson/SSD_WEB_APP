@@ -64,6 +64,21 @@ with st.sidebar:
     generate_button = st.button("Generate SSD", type="primary", use_container_width=True)
 
 # --- MAIN PANEL ---
+if 'ssd_results' in st.session_state:
+    results = st.session_state['ssd_results']
+    log_messages = st.session_state['log_messages']
+
+    p_value = results['plot_data']['p_value']
+    hcp_value = results['hcp']
+    ci_lower, ci_upper = results['hcp_ci_lower'], results['hcp_ci_upper']
+    final_agg_data = st.session_state['final_agg_data'] # Also need to save this
+
+    # All your tabs (tab1, tab2, tab3, tab4) and their content
+    # should be indented under this 'if' block.
+    st.header("📈 Results")
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary & Plot", "🔎 Model Diagnostics", "📋 Final Data", "⚙️ Processing Log"])
+
+
 if not st.session_state.selected_chemicals:
     st.info("Please select a data source and at least one chemical to begin the analysis.")
     st.stop()
