@@ -25,6 +25,10 @@ def _fit_single_distribution(dist_name, model_info, data, p_value):
     target_data = np.log(data) if model_info['log'] else data
     params = model_info['dist'].fit(target_data, floc=0) if dist_name == 'Weibull' else model_info['dist'].fit(target_data)
     log_likelihood = np.sum(model_info['dist'].logpdf(target_data, *params))
+    
+    if model_info['log']:
+        log_likelihood -= np.sum(np.log(data))
+    
     aicc = calculate_aicc(model_info['k'], log_likelihood, len(target_data))
     hcp = np.exp(model_info['dist'].ppf(p_value, *params)) if model_info['log'] else model_info['dist'].ppf(p_value, *params)
     ks_stat, ks_pvalue = stats.kstest(target_data, model_info['dist'].cdf, args=params)
