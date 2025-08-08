@@ -110,16 +110,27 @@ if generate_button:
         # --- FIXED: Switched to a numerically stable aggregation method ---
         # Aggregate data per species
         if agg_method == 'Geometric Mean':
-            # This method avoids the FutureWarning and is numerically stable, preventing overflow errors.
-            agg_dict = {
+            # Define the full set of aggregations we *want* to perform if columns exist
+            full_agg_dict = {
                 'conc1_mean': lambda x: np.exp(np.log(x).mean()),
                 'endpoint': 'first',
-                'publication_year': 'first',
-                'author': 'first',
-                'title': 'first',
+                'publication_year': 'first',  # May not exist in uploaded files
+                'author': 'first',            # May not exist in uploaded files
+                'title': 'first',             # May not exist in uploaded files
                 'chemical_name': 'first',
                 'broad_group': 'first'
             }
+
+            # --- DEFINITIVE FIX ---
+            # Create a new dictionary containing only the keys (columns) that
+            # actually exist in the current dataframe (proc_df). This makes the
+            # aggregation robust to different uploaded file schemas.
+            agg_dict = {
+                col: func 
+                for col, func in full_agg_dict.items() 
+                if col in proc_df.columns
+            }
+            
             final_agg_data = proc_df.groupby('species_scientific_name', as_index=False).agg(agg_dict)
         else: # Most Sensitive (Minimum)
             final_agg_data = proc_df.loc[proc_df.groupby('species_scientific_name')['conc1_mean'].idxmin()]
