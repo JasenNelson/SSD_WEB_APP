@@ -12,11 +12,10 @@ try:
 except AttributeError:
     pass
 
-# --- DEFINITIVE FIX: Use SciPy's native log-distributions ---
-# This eliminates the need for manual log transformations and Jacobian corrections.
+# --- DEFINITIVE FIX: Use SciPy's correct name for the Log-Logistic distribution ('fisk') ---
 DISTRIBUTIONS = {
     'Log-Normal':   {'dist': stats.lognorm, 'k': 2},
-    'Log-Logistic': {'dist': stats.loglogistic, 'k': 2},
+    'Log-Logistic': {'dist': stats.fisk, 'k': 2},
     'Weibull':      {'dist': stats.weibull_min, 'k': 2},
     'Gamma':        {'dist': stats.gamma, 'k': 2},
 }
@@ -34,15 +33,12 @@ def _fit_single_distribution(dist_name, model_info, data, p_value):
     # AICc values are now directly comparable.
     aicc = calculate_aicc(model_info['k'], log_likelihood, len(data))
     
-    # Calculate HCp directly. No more np.exp().
+    # Calculate HCp directly.
     hcp = dist_obj.ppf(p_value, *params)
     
     # Run goodness-of-fit tests.
     ks_stat, ks_pvalue = stats.kstest(data, lambda x: dist_obj.cdf(x, *params))
     
-    # The AD test is more complex with fitted parameters, this is an approximation.
-    # For robust AD test, a specific implementation for each distribution is needed.
-    # We will keep the KS test as the primary GoF indicator for now.
     ad_stat = np.nan 
 
     return {'name': dist_name, 'params': params, 'aicc': aicc, 'hcp': hcp, 'ks_pvalue': ks_pvalue, 'ad_statistic': ad_stat, 'dist_obj': dist_obj}
