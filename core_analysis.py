@@ -12,7 +12,6 @@ try:
 except AttributeError:
     pass
 
-# --- DEFINITIVE FIX: Use SciPy's correct name for the Log-Logistic distribution ('fisk') ---
 DISTRIBUTIONS = {
     'Log-Normal':   {'dist': stats.lognorm, 'k': 2},
     'Log-Logistic': {'dist': stats.fisk, 'k': 2},
@@ -24,21 +23,14 @@ def _fit_single_distribution(dist_name, model_info, data, p_value):
     """Fits a single distribution directly on the original concentration data."""
     dist_obj = model_info['dist']
     
-    # Fit the distribution. Use floc=0 for distributions that require it.
-    params = dist_obj.fit(data, floc=0) if dist_name in ['Weibull', 'Gamma'] else dist_obj.fit(data)
+    # --- DEFINITIVE FIX: Force a 2-parameter fit (location=0) for ALL distributions ---
+    # This ensures all models are comparable and correctly fitted for toxicity data.
+    params = dist_obj.fit(data, floc=0)
     
-    # Calculate log-likelihood on the original data scale for all models.
     log_likelihood = np.sum(dist_obj.logpdf(data, *params))
-    
-    # AICc values are now directly comparable.
     aicc = calculate_aicc(model_info['k'], log_likelihood, len(data))
-    
-    # Calculate HCp directly.
     hcp = dist_obj.ppf(p_value, *params)
-    
-    # Run goodness-of-fit tests.
     ks_stat, ks_pvalue = stats.kstest(data, lambda x: dist_obj.cdf(x, *params))
-    
     ad_stat = np.nan 
 
     return {'name': dist_name, 'params': params, 'aicc': aicc, 'hcp': hcp, 'ks_pvalue': ks_pvalue, 'ad_statistic': ad_stat, 'dist_obj': dist_obj}
@@ -68,7 +60,6 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
     results_df['weight'] = 1.0 if mode == 'single' else np.exp(-0.5 * (results_df['aicc'] - results_df['aicc'].min())) / np.sum(np.exp(-0.5 * (results_df['aicc'] - results_df['aicc'].min())))
     final_hcp = np.sum(results_df['weight'] * results_df['hcp'])
 
-    # --- SIMPLIFIED & ROBUST BOOTSTRAP ---
     boot_hcps, boot_cdfs = [], []
     x_range = np.logspace(np.log10(valid_data.min() * 0.5), np.log10(valid_data.max() * 1.2), 200)
     
@@ -76,12 +67,10 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
         try:
             chosen_model_row = results_df.sample(n=1, weights='weight').iloc[0]
             
-            # 1. Generate new data on the original scale.
             boot_sample = chosen_model_row['dist_obj'].rvs(*chosen_model_row['params'], size=n)
             boot_sample = boot_sample[np.isfinite(boot_sample) & (boot_sample > 0)]
             if len(boot_sample) < 5: continue
 
-            # 2. Re-fit model(s) on the clean bootstrap sample
             b_fits = []
             for name in dists_to_fit:
                 if name not in DISTRIBUTIONS: continue
@@ -93,7 +82,6 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
             
             if not b_fits: continue
             
-            # 3. Calculate and append results
             b_results_df = pd.DataFrame(b_fits)
             b_results_df['weight'] = 1.0 if mode == 'single' else np.exp(-0.5 * (b_results_df['aicc'] - b_results_df['aicc'].min())) / np.sum(np.exp(-0.5 * (b_results_df['aicc'] - b_results_df['aicc'].min())))
             boot_hcps.append(np.sum(b_results_df['weight'] * b_results_df['hcp']))
@@ -109,7 +97,7 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
             log_messages.append(f"Warning: A bootstrap iteration failed unexpectedly. Details: {e}")
             continue
 
-    if len(boot_hcps) < n_boot * 0.1: # Check if a significant number of bootstraps failed
+    if len(boot_hcps) < n_boot * 0.1:
         log_messages.append(f"Warning: Confidence intervals may be unreliable. Only {len(boot_hcps)}/{n_boot} bootstrap iterations succeeded.")
     
     hcp_ci_lower, hcp_ci_upper = np.percentile(boot_hcps, [2.5, 97.5]) if len(boot_hcps) > 2 else (np.nan, np.nan)
