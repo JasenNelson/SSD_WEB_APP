@@ -12,42 +12,49 @@ try:
 except AttributeError:
     pass
 
-# --- DEFINITIVE FIX: Revert to manual log-transformation with Jacobian ---
-# This is the only statistically valid method to compare all distributions.
+# --- THE FINAL CORRECTED IMPLEMENTATION ---
 DISTRIBUTIONS = {
-    'Log-Normal':   {'dist': stats.norm, 'k': 2, 'log': True},
-    'Log-Logistic': {'dist': stats.logistic, 'k': 2, 'log': True},
-    'Weibull':      {'dist': stats.weibull_min, 'k': 2, 'log': False},
-    'Gamma':        {'dist': stats.gamma, 'k': 2, 'log': False},
+    'Log-Normal':   {'dist': stats.lognorm,   'base_dist': stats.norm,     'log': True, 'k': 2},
+    'Log-Logistic': {'dist': stats.fisk,      'base_dist': stats.logistic, 'log': True, 'k': 2},
+    'Weibull':      {'dist': stats.weibull_min, 'base_dist': None,         'log': False,'k': 2},
+    'Gamma':        {'dist': stats.gamma,     'base_dist': None,         'log': False,'k': 2},
 }
 
 def _fit_single_distribution(dist_name, model_info, data, p_value):
     """
-    Fits a single distribution. Handles log-transformation and Jacobian correction
-    to ensure all model AICc values are comparable.
+    Fits a single distribution, ensuring correct parameterization for all model types.
+    Log-likelihoods are calculated on the original data scale, making AICc comparable.
     """
+    dist_obj = model_info['dist']
     is_log = model_info.get('log', False)
-    target_data = np.log(data) if is_log else data
-    
-    # Fit the distribution
-    params = model_info['dist'].fit(target_data, floc=0) if dist_name in ['Weibull', 'Gamma'] else model_info['dist'].fit(target_data)
-    
-    # Calculate log-likelihood
-    log_likelihood = np.sum(model_info['dist'].logpdf(target_data, *params))
-    
-    # CRITICAL: Apply Jacobian correction for models fit on log-transformed data
-    if is_log:
-        log_likelihood -= np.sum(np.log(data))
 
-    aicc = calculate_aicc(model_info['k'], log_likelihood, len(target_data))
+    if is_log:
+        # For log-distributions, fit the base distribution to the log-transformed data
+        # This is the MLE for the parameters.
+        log_data = np.log(data)
+        base_params = model_info['base_dist'].fit(log_data)
+        
+        # Translate base parameters to the native log-distribution's parameters
+        # For lognorm: shape=std_dev, loc=0, scale=exp(mean)
+        # For fisk (log-logistic): shape=1/scale, loc=0, scale=exp(loc)
+        if dist_name == 'Log-Normal':
+            params = (base_params[1], 0, np.exp(base_params[0]))
+        else: # Log-Logistic
+            params = (1 / base_params[1], 0, np.exp(base_params[0]))
+    else:
+        # For standard distributions, fit directly with location fixed at 0.
+        params = dist_obj.fit(data, floc=0)
+
+    # Calculate log-likelihood directly on the original data scale using the native distribution
+    log_likelihood = np.sum(dist_obj.logpdf(data, *params))
+
+    aicc = calculate_aicc(model_info['k'], log_likelihood, len(data))
+    hcp = dist_obj.ppf(p_value, *params)
     
-    # Calculate HCp, converting back from log-scale if necessary
-    hcp = np.exp(model_info['dist'].ppf(p_value, *params)) if is_log else model_info['dist'].ppf(p_value, *params)
-    
-    ks_stat, ks_pvalue = stats.kstest(target_data, model_info['dist'].cdf, args=params)
+    ks_stat, ks_pvalue = stats.kstest(data, lambda x: dist_obj.cdf(x, *params))
     ad_stat = np.nan 
 
-    return {'name': dist_name, 'params': params, 'aicc': aicc, 'hcp': hcp, 'ks_pvalue': ks_pvalue, 'ad_statistic': ad_stat, 'dist_obj': model_info['dist'], 'is_log': is_log}
+    return {'name': dist_name, 'params': params, 'aicc': aicc, 'hcp': hcp, 'ks_pvalue': ks_pvalue, 'ad_statistic': ad_stat, 'dist_obj': dist_obj}
 
 def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', selected_dist=None, n_boot=1000, progress_bar=None):
     valid_data_df = data[data[value_col] > 0].copy()
@@ -75,16 +82,13 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
     final_hcp = np.sum(results_df['weight'] * results_df['hcp'])
 
     boot_hcps, boot_cdfs = [], []
-    x_range_log = np.linspace(np.log(valid_data.min()) * 0.9, np.log(valid_data.max()) * 1.1, 200)
+    x_range = np.logspace(np.log10(valid_data.min() * 0.5), np.log10(valid_data.max() * 1.2), 200)
     
     for i in range(n_boot):
         try:
             chosen_model_row = results_df.sample(n=1, weights='weight').iloc[0]
             
             boot_sample = chosen_model_row['dist_obj'].rvs(*chosen_model_row['params'], size=n)
-            if chosen_model_row['is_log']:
-                boot_sample = np.exp(boot_sample)
-            
             boot_sample = boot_sample[np.isfinite(boot_sample) & (boot_sample > 0)]
             if len(boot_sample) < 5: continue
 
@@ -103,10 +107,9 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
             b_results_df['weight'] = 1.0 if mode == 'single' else np.exp(-0.5 * (b_results_df['aicc'] - b_results_df['aicc'].min())) / np.sum(np.exp(-0.5 * (b_results_df['aicc'] - b_results_df['aicc'].min())))
             boot_hcps.append(np.sum(b_results_df['weight'] * b_results_df['hcp']))
             
-            b_avg_cdf = np.zeros_like(x_range_log)
+            b_avg_cdf = np.zeros_like(x_range)
             for _, row in b_results_df.iterrows():
-                cdf_vals = row['dist_obj'].cdf(x_range_log, *row['params']) if row['is_log'] else row['dist_obj'].cdf(np.exp(x_range_log), *row['params'])
-                b_avg_cdf += row['weight'] * cdf_vals
+                b_avg_cdf += row['weight'] * row['dist_obj'].cdf(x_range, *row['params'])
             boot_cdfs.append(b_avg_cdf)
             
             if progress_bar:
@@ -115,18 +118,17 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
             log_messages.append(f"Warning: A bootstrap iteration failed unexpectedly. Details: {e}")
             continue
 
-    if len(boot_hcps) < n_boot * 0.1:
+    if len(boot_hcps) < n_boot * 0.8: # Increased threshold
         log_messages.append(f"Warning: Confidence intervals may be unreliable. Only {len(boot_hcps)}/{n_boot} bootstrap iterations succeeded.")
     
     hcp_ci_lower, hcp_ci_upper = np.percentile(boot_hcps, [2.5, 97.5]) if len(boot_hcps) > 2 else (np.nan, np.nan)
-    lower_ci_curve, upper_ci_curve = np.percentile(boot_cdfs, [2.5, 97.5], axis=0) if len(boot_hcps) > 2 else (np.full_like(x_range_log, np.nan), np.full_like(x_range_log, np.nan))
+    lower_ci_curve, upper_ci_curve = np.percentile(boot_cdfs, [2.5, 97.5], axis=0) if len(boot_hcps) > 2 else (np.full_like(x_range, np.nan), np.full_like(x_range, np.nan))
     
-    final_avg_cdf = np.zeros_like(x_range_log)
+    final_avg_cdf = np.zeros_like(x_range)
     for _, row in results_df.iterrows():
-        cdf_vals = row['dist_obj'].cdf(x_range_log, *row['params']) if row['is_log'] else row['dist_obj'].cdf(np.exp(x_range_log), *row['params'])
-        final_avg_cdf += row['weight'] * cdf_vals
+        final_avg_cdf += row['weight'] * row['dist_obj'].cdf(x_range, *row['params'])
 
     full_data = data.sort_values(by=value_col)
-    plot_data = {'empirical_values': full_data[value_col].values, 'empirical_cdf_percent': (np.arange(1, len(full_data) + 1) / (len(full_data) + 1)) * 100, 'fitted_x_range': np.exp(x_range_log), 'fitted_y_cdf_percent': final_avg_cdf * 100, 'lower_ci_percent': lower_ci_curve * 100, 'upper_ci_percent': upper_ci_curve * 100, 'species': full_data[species_col].tolist(), 'groups': full_data['broad_group'].tolist(), 'p_value': p_value}
+    plot_data = {'empirical_values': full_data[value_col].values, 'empirical_cdf_percent': (np.arange(1, len(full_data) + 1) / (len(full_data) + 1)) * 100, 'fitted_x_range': x_range, 'fitted_y_cdf_percent': final_avg_cdf * 100, 'lower_ci_percent': lower_ci_curve * 100, 'upper_ci_percent': upper_ci_curve * 100, 'species': full_data[species_col].tolist(), 'groups': full_data['broad_group'].tolist(), 'p_value': p_value}
     final_results = {'hcp': final_hcp, 'hcp_ci_lower': hcp_ci_lower, 'hcp_ci_upper': hcp_ci_upper, 'results_df': results_df, 'plot_data': plot_data}
     return final_results, log_messages
