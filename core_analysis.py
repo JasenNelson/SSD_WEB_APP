@@ -1,4 +1,4 @@
-# core_analysis.py (Version 3.0 - Definitive Fix)
+# core_analysis.py
 import pandas as pd
 import numpy as np
 from scipy import stats
@@ -8,7 +8,6 @@ from utils import calculate_aicc
 # --- ROBUST WARNING SUPPRESSION ---
 warnings.filterwarnings("ignore", category=RuntimeWarning, module='scipy')
 try:
-    # This specific warning can occur in older scipy versions
     warnings.filterwarnings("ignore", category=stats.FitConstantWarning, module='scipy')
 except AttributeError:
     pass
@@ -31,8 +30,9 @@ def _fit_single_distribution(dist_name, model_info, data, p_value):
     is_log = model_info.get('log', False)
     target_data = np.log(data) if is_log else data
     
-    # Fit the distribution to the appropriate data (log-transformed or original)
-    params = model_info['dist'].fit(target_data)
+    # --- DEFINITIVE FIX: Restore floc=0 for non-log distributions ---
+    # This ensures a correct 2-parameter fit for all models.
+    params = model_info['dist'].fit(target_data, floc=0) if dist_name in ['Weibull', 'Gamma'] else model_info['dist'].fit(target_data)
     
     # Calculate log-likelihood based on the fit
     log_likelihood = np.sum(model_info['dist'].logpdf(target_data, *params))
@@ -76,12 +76,12 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
     results_df['weight'] = 1.0 if mode == 'single' else np.exp(-0.5 * (results_df['aicc'] - results_df['aicc'].min())) / np.sum(np.exp(-0.5 * (results_df['aicc'] - results_df['aicc'].min())))
     final_hcp = np.sum(results_df['weight'] * results_df['hcp'])
 
+    # Standard non-parametric bootstrap
     boot_hcps, boot_cdfs = [], []
     x_range_log = np.linspace(np.log(valid_data.min()) * 0.9, np.log(valid_data.max()) * 1.1, 200)
     
     for i in range(n_boot):
         try:
-            # Resample from the original data (standard non-parametric bootstrap)
             boot_sample = valid_data.sample(n=n, replace=True)
             
             b_fits = []
@@ -112,7 +112,7 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
             continue
 
     if len(boot_hcps) < n_boot * 0.8:
-        log_messages.append(f"Warning: Confidence intervals may be unreliable. Only {len(boot_hcps)}/{n_boot} bootstrap iterations succeeded.")
+        log_messages.append(f"Warning: Confidence intervals may be unreliable. Only {len(boot_hcps)}/{n_boot} successful bootstrap iterations.")
     
     hcp_ci_lower, hcp_ci_upper = np.percentile(boot_hcps, [2.5, 97.5]) if len(boot_hcps) > 2 else (np.nan, np.nan)
     lower_ci_curve, upper_ci_curve = np.percentile(boot_cdfs, [2.5, 97.5], axis=0) if len(boot_hcps) > 2 else (np.full_like(x_range_log, np.nan), np.full_like(x_range_log, np.nan))
