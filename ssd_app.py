@@ -1,7 +1,6 @@
 # ssd_app.py
 
-# This block explicitly adds the app's root directory to the Python path
-# to ensure local modules can always be found reliably.
+# This block ensures that local modules can be found reliably.
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -26,9 +25,11 @@ db = initialize_supabase()
 
 # --- Initialize Session State ---
 if 'data' not in st.session_state:
-    st.session_state.data = None
-if 'selected_chemicals' not in st.session_state:
-    st.session_state.selected_chemicals = []
+    st.session_state.data = None # Will hold the uploaded dataframe
+if 'selected_chemicals_db' not in st.session_state:
+    st.session_state.selected_chemicals_db = []
+if 'selected_chemicals_csv' not in st.session_state:
+    st.session_state.selected_chemicals_csv = []
 if 'search_term' not in st.session_state:
     st.session_state.search_term = ""
 
@@ -46,9 +47,9 @@ with st.sidebar:
         horizontal=True
     )
 
+    # --- UI LOGIC FOR DATABASE SEARCH ---
     if data_source == 'Database Search':
         if db:
-            # 1. Restore the text input for the user to type their search
             st.session_state.search_term = st.text_input(
                 "Search for a chemical", 
                 value=st.session_state.search_term,
@@ -56,32 +57,45 @@ with st.sidebar:
             )
 
             search_results = []
-            # 2. Only search the database if the user has typed something
             if st.session_state.search_term:
                 search_results = search_chemicals_in_db(db, st.session_state.search_term)
 
-            # 3. Restore "Select All" functionality
             select_all = st.checkbox("Select all search results")
             
-            # 4. Handle default selection logic correctly
-            default_selection = st.session_state.selected_chemicals
+            default_selection = st.session_state.selected_chemicals_db
             if select_all:
                 default_selection = search_results
-
-            # 5. Fix the StreamlitAPIException by ensuring options always contain the default
-            combined_options = sorted(list(set(search_results + st.session_state.selected_chemicals)))
             
-            st.session_state.selected_chemicals = st.multiselect(
+            combined_options = sorted(list(set(search_results + st.session_state.selected_chemicals_db)))
+            
+            st.session_state.selected_chemicals_db = st.multiselect(
                 "Select from results",
                 options=combined_options,
                 default=default_selection
             )
 
-    else: # Upload CSV
+    # --- UI LOGIC FOR CSV UPLOAD ---
+    else:
         uploaded_file = st.file_uploader("Upload your data", type=["csv"])
         if uploaded_file:
             st.session_state.data = pd.read_csv(uploaded_file)
             st.success("File uploaded successfully!")
+        
+        # --- NEW: CHEMICAL SELECTION FOR UPLOADED CSV ---
+        if st.session_state.data is not None:
+            if 'chemical_name' in st.session_state.data.columns:
+                # Get unique chemicals from the uploaded file
+                csv_chemicals = sorted(st.session_state.data['chemical_name'].unique())
+                
+                # Display the multiselect for the CSV
+                st.session_state.selected_chemicals_csv = st.multiselect(
+                    "Select Chemicals from CSV", 
+                    options=csv_chemicals, 
+                    default=csv_chemicals # Default to selecting all chemicals in the file
+                )
+            else:
+                st.warning("Warning: Your CSV does not contain a 'chemical_name' column. The entire file will be analyzed as a single dataset.")
+        # --- END OF NEW LOGIC ---
 
     st.header("SSD Parameters")
     water_type = st.radio("Media Type", ('Freshwater', 'Marine'), horizontal=True)
@@ -100,20 +114,26 @@ with st.sidebar:
 
 # --- Main Panel for Results ---
 if run_button:
-    # --- DATA LOADING AND PRE-PROCESSING ---
     raw_data = None
-    if data_source == 'Database Search' and st.session_state.selected_chemicals and db:
-        raw_data = fetch_data_for_chemicals(db, st.session_state.selected_chemicals)
+    selected_chemicals_for_title = []
+
+    if data_source == 'Database Search' and st.session_state.selected_chemicals_db and db:
+        raw_data = fetch_data_for_chemicals(db, st.session_state.selected_chemicals_db)
+        selected_chemicals_for_title = st.session_state.selected_chemicals_db
+
     elif data_source == 'Upload CSV' and st.session_state.data is not None:
         raw_data = st.session_state.data
+        # If chemical selection is available for the CSV, filter the data
+        if 'chemical_name' in raw_data.columns and st.session_state.selected_chemicals_csv:
+            raw_data = raw_data[raw_data['chemical_name'].isin(st.session_state.selected_chemicals_csv)]
+            selected_chemicals_for_title = st.session_state.selected_chemicals_csv
+        else:
+            selected_chemicals_for_title = ["Uploaded Data"]
 
     if raw_data is not None and not raw_data.empty:
-        
-        # --- MEDIA TYPE FILTERING LOGIC ---
         media_code = 'FW' if water_type == 'Freshwater' else 'MW'
         analysis_data = raw_data[raw_data['media_type'] == media_code].copy()
         
-        # Add the broad_group column for plotting
         if 'species_group' in analysis_data.columns:
             analysis_data['broad_group'] = analysis_data['species_group'].apply(map_taxonomic_group)
         
@@ -134,30 +154,20 @@ if run_button:
         status_box.update(label="Analysis complete!", state="complete", expanded=False)
 
         if results:
-            hcp_val = results['hcp']
-            ci_lower = results['hcp_ci_lower']
-            ci_upper = results['hcp_ci_upper']
-
-            st.success(
-                f"**Analysis Successful:** Model-averaged HC{p_value*100:.0f} is **{hcp_val:.2f} mg/L** "
-                f"(95% CI: {ci_lower:.2f} - {ci_upper:.2f} mg/L)"
-            )
-
+            hcp_val, ci_lower, ci_upper = results['hcp'], results['hcp_ci_lower'], results['hcp_ci_upper']
+            st.success(f"**Analysis Successful:** Model-averaged HC{p_value*100:.0f} is **{hcp_val:.2f} mg/L** (95% CI: {ci_lower:.2f} - {ci_upper:.2f} mg/L)")
+            
             with st.expander("View Analysis Parameters Used"):
                 spec_details = {
-                    "Protection Level": f"{p_value*100:.0f}% (p-value: {p_value})",
-                    "Analysis Mode": analysis_mode,
-                    "Species Aggregation Method": agg_method,
-                    "Media Type Filter": water_type,
+                    "Protection Level": f"{p_value*100:.0f}% (p-value: {p_value})", "Analysis Mode": analysis_mode,
+                    "Species Aggregation Method": agg_method, "Media Type Filter": water_type,
                     "Bootstrap Iterations": f"{n_boot}"
                 }
-                for key, value in spec_details.items():
-                    st.markdown(f"**{key}:** `{value}`")
+                for key, value in spec_details.items(): st.markdown(f"**{key}:** `{value}`")
 
             tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary & Plot", "📈 Model Diagnostics", "📋 Final Data", "📝 Processing Log"])
-
             with tab1:
-                title_chemicals = ', '.join(st.session_state.selected_chemicals) if data_source == 'Database Search' and st.session_state.selected_chemicals else "Uploaded Data"
+                title_chemicals = ', '.join(selected_chemicals_for_title)
                 st.plotly_chart(create_ssd_plot(results['plot_data'], hcp_val, "mg/L", f"SSD for {title_chemicals} ({water_type})"), use_container_width=True)
             with tab2:
                 st.dataframe(results['results_df'])
@@ -175,4 +185,4 @@ if run_button:
             if log_messages:
                 for msg in log_messages: st.warning(msg)
     else:
-        st.warning("Please select chemicals or upload a file to generate an SSD.")
+        st.warning("Please select/upload data and click 'Generate SSD'.")
