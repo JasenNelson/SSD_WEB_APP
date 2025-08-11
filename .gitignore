@@ -175,3 +175,8 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp 
+
+# Data files
+*.csv
+*.xlsx
+*.xls

@@ -1,90 +1,94 @@
 # Species Sensitivity Distribution (SSD) Generator
 
-This web application, built with Streamlit, generates Species Sensitivity Distributions (SSDs) from toxicology data. It is designed to provide a user-friendly interface for environmental scientists and researchers to perform SSD analysis, visualize the results, and derive Hazard Concentrations (HCp) for ecological risk assessment.
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://sstac-ssd-web-app.streamlit.app/)
 
-The application can connect directly to a toxicology database hosted on Supabase or use a user-provided CSV file.
+A user-friendly web application for creating Species Sensitivity Distributions (SSDs), a key tool in ecological risk assessment.
 
-## How it Works
+![Application Screenshot](assets/screenshot.png)
+*(Recommendation: Add a screenshot of your app and place it in an `assets` folder)*
 
-The application performs SSD analysis by fitting one or more statistical distributions to the provided toxicity data. The core analysis is powered by the `scipy.stats` library.
+## Overview
 
-* **Distributions:** It supports four common distributions used in ecotoxicology: Log-Normal, Log-Logistic, Weibull, and Gamma.
-* **Model Fitting:** The application fits the selected distribution(s) to the species toxicity data to generate a cumulative distribution function (CDF).
-* **Model Averaging:** In "Model Averaging" mode, the application fits all four distributions and calculates weights based on the Akaike Information Criterion corrected for small sample sizes (AICc). The final HCp and CDF curve are a weighted average of all models, providing a more robust estimate.
-* **Confidence Intervals:** 95% confidence intervals for the HCp value and the fitted curve are generated using a non-parametric bootstrapping method.
+This application provides an intuitive interface for environmental scientists and toxicologists to perform robust SSD analysis. It can generate distributions, derive Hazard Concentrations (HCp), and visualize the results interactively. The app supports direct connections to a Supabase toxicology database or analysis of user-provided CSV files.
 
-## Key Features
+### Key Features
 
-* **Dynamic Data Sourcing:**
-    * Connect directly to a Supabase toxicology database with a live chemical search.
-    * Upload local data via CSV file for analysis.
-* **Advanced Filtering:**
-    * Filter data by chemical and water type (Freshwater or Marine).
-    * Robustly excludes data with "Not Reported" endpoints (e.g., 'NR', 'NR-ZERO') to ensure analysis quality.
-* **Customizable Analysis:**
-    * Handle multiple toxicity values per species by taking the **Geometric Mean** or the **Most Sensitive (Minimum)** value.
-    * Choose between a robust **Model Averaging** approach or analysis with a **Single Distribution**.
-* **Interactive Visualization & Output:**
-    * Displays an interactive SSD plot using Plotly, with data points categorized and styled by taxonomic group.
-    * Calculates and displays the HCp estimate and its 95% confidence interval.
-    * Provides downloadable tables for model diagnostics and the final aggregated data used in the plot.
-* **Enhanced User Experience:**
-    * A **"Select All"** checkbox to easily analyze all available chemicals.
-    * A detailed status box with a **real-time progress bar** provides feedback during the bootstrap analysis.
+**Data Handling & Filtering**
+*   **Dynamic Data Sources:** Connect live to a Supabase database or upload a local CSV file.
+*   **Chemical & Media Filtering:** Easily select chemicals and filter data for Freshwater or Marine environments.
+*   **Intelligent Data Aggregation:** Handle multiple toxicity values for a single species by calculating the **Geometric Mean** (standard) or using the **Most Sensitive** value.
+*   **Robust Endpoint Cleaning:** Automatically identifies and excludes non-numeric or invalid endpoint data (e.g., 'NR', 'Not Reported') to ensure analysis quality.
+
+**Powerful Statistical Analysis**
+*   **Multiple Distributions:** Utilizes four standard distributions: Log-Normal, Log-Logistic, Weibull, and Gamma.
+*   **Advanced Model Averaging:** Fits all four distributions and uses Akaike Information Criterion (AICc) to calculate model weights, producing a more robust, weighted-average result.
+*   **Single Distribution Mode:** Option to analyze data using a single, user-selected distribution.
+*   **Bootstrap Confidence Intervals:** Generates 95% confidence intervals for both the HCp value and the fitted distribution curve using a non-parametric bootstrap procedure.
+
+**Interactive Outputs & UX**
+*   **Interactive Plotly Graph:** Visualizes the SSD curve, confidence bands, and individual data points styled by taxonomic group.
+*   **Customizable Protection Level (HCp):** The percentile (`p` in HCp) is fully customizable, allowing for the calculation of any hazard concentration (e.g., HC5, HC10, HC20).
+*   **Downloadable Results:** Export model diagnostic tables (GOF statistics) and the final aggregated data used for plotting.
+*   **Live Progress Bar:** A real-time status box provides feedback during computationally intensive bootstrap iterations.
+
+## Core Scientific Methodology
+
+The core analysis is powered by the `scipy` and `numpy` libraries, following established best practices.
+
+1.  **Fitting Strategy:** To ensure proper statistical treatment, the application uses two fitting strategies:
+    *   **Log-Transformed Data:** The `Log-Normal` and `Log-Logistic` distributions are fitted to the natural logarithm of the toxicity data.
+    *   **Original Data:** The `Weibull` and `Gamma` distributions are fitted to the toxicity data in its original scale.
+
+2.  **Model Parameterization:** All distributions are fitted using `scipy.stats.fit`, which estimates three parameters by default: shape, location (`loc`), and scale. The Akaike Information Criterion calculation correctly accounts for these parameters to ensure proper model penalization.
+
+3.  **Model Averaging (AICc):** When model averaging is selected, the weight of each distribution is determined by its AICc score. This method rewards models for goodness-of-fit while penalizing them for complexity (number of parameters), preventing overfitting and providing a more reliable, averaged estimate.
 
 ## Project Structure
 
-The application is organized into several key Python files:
+*   `ssd_app.py`: The main Streamlit application file containing the UI and workflow logic.
+*   `ssd_core.py`: Handles the core statistical calculations, including distribution fitting and bootstrapping. *(Formerly `core_analysis.py`)*
+*   `database.py`: Manages the connection to the Supabase database and data fetching.
+*   `ui_components.py`: Contains functions for generating the Plotly graph and other UI elements.
+*   `utils.py`: Includes helper functions, such as taxonomic group mapping and AICc calculation.
 
-* `ssd_app.py`: The main Streamlit application file containing the UI and workflow logic.
-* `core_analysis.py`: Handles the core statistical calculations for the SSD, including distribution fitting and bootstrapping.
-* `database.py`: Manages the connection to the Supabase database and data fetching.
-* `ui_components.py`: Contains functions for generating the Plotly graph and other UI elements.
-* `utils.py`: Includes helper functions, such as the taxonomic group mapping.
+## Getting Started
 
-## Installation and Setup
+### Prerequisites
+*   Python 3.9+
+*   An environment manager like `venv` or `conda`.
+
+### Installation and Setup
 
 1.  **Clone the repository:**
     ```bash
-    git clone <your-repository-url>
-    cd <your-repository-folder>
+    git clone https://github.com/jasennelson/ssd_web_app.git
+    cd ssd_web_app
     ```
 2.  **Install dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
-3.  **Set up Supabase credentials (Required for Database Search):**
-    * Create a file at `.streamlit/secrets.toml`.
-    * Add your Supabase URL and Key to this file:
+3.  **Set up Supabase credentials (Optional, for database mode):**
+    *   Create a file at `.streamlit/secrets.toml`.
+    *   Add your Supabase URL and anonymous key:
         ```toml
         [connections.supabase]
         url = "YOUR_SUPABASE_URL"
         key = "YOUR_SUPABASE_ANON_KEY"
         ```
 
-## Usage
+### Running the Application
 
-1.  **Run the Streamlit app:**
+1.  **Run the Streamlit app from your terminal:**
     ```bash
     streamlit run ssd_app.py
     ```
-2.  In the sidebar, choose your **Data Source**.
-3.  **Select Chemicals** for analysis. You can use the search bar (for database mode) and the "Select All" checkbox.
-4.  Configure **Filtering** (Water Type), **SSD Parameters** (Aggregation, Analysis Mode), and **Protection** level (HCp Percentile, Bootstrap Iterations).
-5.  Click the **"Generate SSD"** button.
-6.  Monitor the progress in the status box that appears.
-7.  Once complete, review your results in the main panel, which is organized into four tabs:
-    * **Summary & Plot:** The main results and interactive SSD graph.
-    * **Model Diagnostics:** Goodness-of-fit statistics for the models.
-    * **Final Data:** The aggregated data used for plotting.
-    * **Processing Log:** Any warnings generated during the analysis.
+2.  Open the local URL provided by Streamlit in your web browser.
 
-## Data Requirements
+## Contributing
 
-For the app to function correctly, the input data (either from the database or CSV) must contain the following columns:
-* `chemical_name` (text)
-* `species_scientific_name` (text)
-* `conc1_mean` (numeric) - The toxicity value.
-* `species_group` (text) - e.g., 'Fish', 'Plant', 'Invertebrate'.
-* `endpoint` (text)
-* `media_type` (text) - Should contain 'FW' for freshwater or 'MW' for marine.
+Contributions, bug reports, and feature requests are welcome! Please feel free to open an issue or submit a pull request on the GitHub repository.
+
+## License
+
+This project is licensed under the MIT License. See the `LICENSE` file for details.```
