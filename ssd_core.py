@@ -60,13 +60,7 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
     
     results_df = pd.DataFrame(model_fits)
     
-    # --- DEBUGGING CANARY ---
-    # This print statement will ONLY appear in the logs if the new code is running.
-    print("--- DEBUG v3: AICc values BEFORE weighting ---")
-    print(results_df[['name', 'aicc']])
-    print("--------------------------------------------")
-    # --- END DEBUGGING ---
-    
+      
     results_df['weight'] = 1.0 if mode == 'single' else np.exp(-0.5 * (results_df['aicc'] - results_df['aicc'].min())) / np.sum(np.exp(-0.5 * (results_df['aicc'] - results_df['aicc'].min())))
     final_hcp = np.sum(results_df['weight'] * results_df['hcp'])
 
