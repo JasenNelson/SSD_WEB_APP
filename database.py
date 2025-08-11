@@ -2,7 +2,6 @@
 import streamlit as st
 from st_supabase_connection import SupabaseConnection
 import pandas as pd
-import math
 
 @st.cache_resource(show_spinner="Connecting to database...")
 def initialize_supabase():
@@ -12,8 +11,23 @@ def initialize_supabase():
         key = st.secrets.connections.supabase.key
         return st.connection("supabase", type=SupabaseConnection, url=url, key=key)
     except Exception as e:
-        st.error(f"Failed to connect to Supabase. Ensure URL/Key are correct in secrets.toml. Error: {e}")
+        st.error(f"Failed to connect to Supabase. Ensure URL/Key are correct. Error: {e}")
         return None
+
+# --- NEW FUNCTION ADDED HERE ---
+@st.cache_data(ttl=3600, show_spinner="Fetching available chemicals...")
+def fetch_all_chemicals(_supabase_client):
+    """Fetches a sorted list of all unique chemical names from the database."""
+    if not _supabase_client:
+        return []
+    try:
+        response = _supabase_client.table("toxicology_data").select("chemical_name").execute()
+        # Use a set for efficiency to get unique names, then sort the list
+        all_chemicals = sorted(list(set(item['chemical_name'] for item in response.data)))
+        return all_chemicals
+    except Exception as e:
+        st.error(f"Failed to fetch chemical list: {e}")
+        return []
 
 @st.cache_data(ttl=60)
 def search_chemicals_in_db(_supabase_client, search_term: str):
@@ -33,28 +47,20 @@ def search_chemicals_in_db(_supabase_client, search_term: str):
         st.error(f"Database search failed: {e}")
     return []
 
-# --- DEFINITIVE FIX: HIGH-PERFORMANCE PAGINATION WITHOUT COUNTING ---
 def fetch_data_for_chemicals(_supabase_client, chemical_names: list):
-    """Fetches data for chemicals using robust pagination that does not require a pre-count."""
+    """Fetches data for a list of chemicals using robust pagination."""
     if not chemical_names: return pd.DataFrame()
 
-    required_columns = ['chemical_name', 'species_scientific_name', 'conc1_mean', 'species_group', 'media_type', 'endpoint', 'publication_year', 'author', 'title']
+    required_columns = ['chemical_name', 'species_scientific_name', 'conc1_mean', 'species_group', 'media_type', 'endpoint']
     all_data = []
     page = 0
-    page_size = 1000  # Supabase's default and max limit per request
+    page_size = 1000
 
-    # Create a persistent spinner
-    spinner = st.spinner("Fetching data...")
-    
-    with spinner:
+    with st.spinner("Fetching data from database..."):
         while True:
             start_row = page * page_size
             end_row = start_row + page_size - 1
-            
             try:
-                # Update the spinner text for each page request
-                spinner.text = f"Fetching data page {page + 1}..."
-                
                 page_response = _supabase_client.table("toxicology_data") \
                                                 .select(','.join(required_columns)) \
                                                 .in_("chemical_name", chemical_names) \
@@ -63,15 +69,11 @@ def fetch_data_for_chemicals(_supabase_client, chemical_names: list):
                 
                 if page_response.data:
                     all_data.extend(page_response.data)
-                    # If we receive fewer rows than we asked for, it must be the last page.
                     if len(page_response.data) < page_size:
                         break
                 else:
-                    # If we receive no data, we are done.
                     break
-                
                 page += 1
-
             except Exception as e:
                 st.error(f"Database fetch failed on page {page + 1}: {e}")
                 return pd.DataFrame()
