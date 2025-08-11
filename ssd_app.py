@@ -8,9 +8,9 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 import streamlit as st
 import pandas as pd
 from ssd_core import run_ssd_analysis
-# --- CORRECTED IMPORTS HERE ---
 from database import initialize_supabase, fetch_all_chemicals, fetch_data_for_chemicals
-from ui_components import build_ssd_plot
+# --- CORRECTED IMPORT NAME HERE ---
+from ui_components import create_ssd_plot
 from utils import map_taxonomic_group
 
 # --- App Configuration ---
@@ -45,7 +45,6 @@ with st.sidebar:
     )
 
     if data_source == 'Database Search':
-        # Use the now-existing function to populate the multiselect
         if db:
             chemical_list = fetch_all_chemicals(db)
             st.session_state.selected_chemicals = st.multiselect(
@@ -80,7 +79,7 @@ with st.sidebar:
 # --- Main Panel for Results ---
 if run_button:
     if data_source == 'Database Search' and st.session_state.selected_chemicals and db:
-        st.session_state.data = fetch_data_for_chemicals(db, st.session_state.selected_chemicals) # <-- CORRECTED FUNCTION NAME
+        st.session_state.data = fetch_data_for_chemicals(db, st.session_state.selected_chemicals)
         if 'species_group' in st.session_state.data.columns:
             st.session_state.data['broad_group'] = st.session_state.data['species_group'].apply(map_taxonomic_group)
 
@@ -125,7 +124,8 @@ if run_button:
             tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary & Plot", "📈 Model Diagnostics", "📋 Final Data", "📝 Processing Log"])
 
             with tab1:
-                st.plotly_chart(build_ssd_plot(results['plot_data']), use_container_width=True)
+                # --- CORRECTED FUNCTION CALL HERE ---
+                st.plotly_chart(create_ssd_plot(results['plot_data']), use_container_width=True)
             with tab2:
                 st.dataframe(results['results_df'])
             with tab3:
