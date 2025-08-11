@@ -46,9 +46,7 @@ with st.sidebar:
     )
 
     if data_source == 'Database Search':
-        # --- RESTORED INTERACTIVE SEARCH LOGIC ---
         if db:
-            # 1. Create a text input for the user to type their search
             st.session_state.search_term = st.text_input(
                 "Search for a chemical", 
                 value=st.session_state.search_term,
@@ -56,17 +54,20 @@ with st.sidebar:
             )
 
             search_results = []
-            # 2. Only search the database if the user has typed something
             if st.session_state.search_term:
                 search_results = search_chemicals_in_db(db, st.session_state.search_term)
 
-            # 3. The multiselect options are now the DYNAMIC search results
+            # --- THE FINAL FIX IS HERE ---
+            # Combine search results with already selected chemicals to prevent the error.
+            # This ensures that selected items always appear in the options list.
+            combined_options = sorted(list(set(search_results + st.session_state.selected_chemicals)))
+            # --- END OF FIX ---
+
             st.session_state.selected_chemicals = st.multiselect(
-                "Select from search results",
-                options=search_results,
+                "Select from results",
+                options=combined_options, # Use the combined list
                 default=st.session_state.selected_chemicals
             )
-        # --- END OF RESTORED LOGIC ---
 
     else: # Upload CSV
         uploaded_file = st.file_uploader("Upload your data", type=["csv"])
@@ -139,7 +140,8 @@ if run_button:
             tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary & Plot", "📈 Model Diagnostics", "📋 Final Data", "📝 Processing Log"])
 
             with tab1:
-                st.plotly_chart(create_ssd_plot(results['plot_data'], hcp_val, "mg/L", f"SSD for {', '.join(st.session_state.selected_chemicals)}"), use_container_width=True)
+                title_chemicals = ', '.join(st.session_state.selected_chemicals) if st.session_state.selected_chemicals else "Uploaded Data"
+                st.plotly_chart(create_ssd_plot(results['plot_data'], hcp_val, "mg/L", f"SSD for {title_chemicals}"), use_container_width=True)
             with tab2:
                 st.dataframe(results['results_df'])
             with tab3:
