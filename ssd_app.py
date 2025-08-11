@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np  # Ensure numpy is imported
 from database import initialize_supabase, search_chemicals_in_db, fetch_data_for_chemicals
-from core_analysis import run_ssd_analysis
+from ssd_core import run_ssd_analysis
 from ui_components import create_ssd_plot, render_diagnostics_table
 from utils import convert_df_to_csv, map_taxonomic_group
 
