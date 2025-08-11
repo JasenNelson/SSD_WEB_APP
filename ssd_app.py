@@ -9,7 +9,7 @@ from utils import convert_df_to_csv, map_taxonomic_group
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Species Sensitivity Distribution (SSD) Generator", layout="wide")
-st.title("Species Sensitivity Distribution (SSD) Generator V2")
+st.title("Species Sensitivity Distribution (SSD) Generator")
 
 # --- INITIALIZATION ---
 st.session_state.setdefault('selected_chemicals', [])
