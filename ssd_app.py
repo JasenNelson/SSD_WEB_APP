@@ -1,10 +1,20 @@
 # ssd_app.py
+
+# --- ⬇️ GUARANTEED PATHING FIX (Added) ⬇️ ---
+# This block explicitly adds the app's root directory to the Python path.
+# This is a robust way to ensure that local modules (database, utils, etc.)
+# can be found, bypassing any potential caching issues on the deployment server.
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+# --- ⬆️ END OF FIX ⬆️ ---
+
 import streamlit as st
 import pandas as pd
 from ssd_core import run_ssd_analysis
 from database import fetch_all_chemicals, fetch_data_for_chemical
 from ui_components import build_ssd_plot
-from utils import get_taxonomic_group_map
+from utils import map_taxonomic_group # Corrected this function name based on our tests
 
 # --- App Configuration ---
 st.set_page_config(
@@ -15,7 +25,6 @@ st.set_page_config(
 )
 
 # --- Initialize Session State ---
-# This ensures that variables persist across user interactions.
 if 'data' not in st.session_state:
     st.session_state.data = None
 if 'selected_chemicals' not in st.session_state:
@@ -51,6 +60,9 @@ with st.sidebar:
         uploaded_file = st.file_uploader("Upload your data", type=["csv"])
         if uploaded_file:
             st.session_state.data = pd.read_csv(uploaded_file)
+            # Create the 'broad_group' column right after loading the CSV
+            if 'species_group' in st.session_state.data.columns:
+                st.session_state.data['broad_group'] = st.session_state.data['species_group'].apply(map_taxonomic_group)
             st.success("File uploaded successfully!")
 
     st.header("SSD Parameters")
@@ -70,31 +82,28 @@ with st.sidebar:
     run_button = st.button("Generate SSD", type="primary")
 
 # --- Main Panel for Results ---
-# This section only runs when the button is clicked.
 if run_button:
-    # Clear previous results
-    st.session_state.data = None
-    
     # Fetch data if using database
     if data_source == 'Database Search' and st.session_state.selected_chemicals:
         try:
             st.session_state.data = fetch_data_for_chemical(st.session_state.selected_chemicals)
+            # Create the 'broad_group' column after fetching from DB
+            if 'species_group' in st.session_state.data.columns:
+                st.session_state.data['broad_group'] = st.session_state.data['species_group'].apply(map_taxonomic_group)
         except Exception as e:
             st.error(f"Failed to fetch data: {e}")
 
-    # Check if data is available to be processed
+    # Check if data is available
     if st.session_state.data is not None and not st.session_state.data.empty:
-        # Create a status box to show progress
         status_box = st.status("Running SSD analysis...", expanded=True)
         progress_bar = status_box.progress(0, text="Initializing...")
 
-        # Run the core analysis function
         results, log_messages = run_ssd_analysis(
             data=st.session_state.data,
             species_col="species_scientific_name",
             value_col="conc1_mean",
             p_value=p_value,
-            mode=analysis_mode.lower().replace(' ', '_'), # e.g., 'model_averaging'
+            mode=analysis_mode.lower().replace(' ', '_'),
             selected_dist=selected_dist,
             n_boot=n_boot,
             progress_bar=progress_bar
@@ -102,7 +111,6 @@ if run_button:
         
         status_box.update(label="Analysis complete!", state="complete", expanded=False)
 
-        # Display results if the analysis was successful
         if results:
             hcp_val = results['hcp']
             ci_lower = results['hcp_ci_lower']
@@ -113,7 +121,6 @@ if run_button:
                 f"(95% CI: {ci_lower:.2f} - {ci_upper:.2f} mg/L)"
             )
 
-            # --- ⬇️ BLOCK B: SPEC DISPLAY (Added) ⬇️ ---
             with st.expander("View Analysis Parameters Used"):
                 spec_details = {
                     "Protection Level": f"{p_value*100:.0f}% (p-value: {p_value})",
@@ -124,9 +131,7 @@ if run_button:
                 }
                 for key, value in spec_details.items():
                     st.markdown(f"**{key}:** `{value}`")
-            # --- ⬆️ END OF BLOCK B ⬆️ ---
 
-            # Create tabs for organized output
             tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary & Plot", "📈 Model Diagnostics", "📋 Final Data", "📝 Processing Log"])
 
             with tab1:
@@ -134,15 +139,9 @@ if run_button:
 
             with tab2:
                 st.dataframe(results['results_df'])
-                st.download_button(
-                    label="Download Diagnostics (CSV)",
-                    data=results['results_df'].to_csv().encode('utf-8'),
-                    file_name="gof_diagnostics.csv",
-                    mime="text/csv"
-                )
+                st.download_button("Download Diagnostics (CSV)", results['results_df'].to_csv(index=False).encode('utf-8'), "gof_diagnostics.csv", "text/csv")
 
             with tab3:
-                # Prepare final data for display and download
                 plot_df_data = results['plot_data']
                 final_df = pd.DataFrame({
                     'Species': plot_df_data['species'],
@@ -151,12 +150,7 @@ if run_button:
                     'Percentile': plot_df_data['empirical_cdf_percent']
                 })
                 st.dataframe(final_df)
-                st.download_button(
-                    label="Download Final Data (CSV)",
-                    data=final_df.to_csv().encode('utf-8'),
-                    file_name="final_plot_data.csv",
-                    mime="text/csv"
-                )
+                st.download_button("Download Final Data (CSV)", final_df.to_csv(index=False).encode('utf-8'), "final_plot_data.csv", "text/csv")
             
             with tab4:
                 if log_messages:
@@ -165,7 +159,6 @@ if run_button:
                 else:
                     st.info("No warnings were generated during processing.")
         else:
-            # Display errors if analysis failed
             st.error("SSD analysis failed to produce valid results. Check the processing log for details.")
             if log_messages:
                 for msg in log_messages:
