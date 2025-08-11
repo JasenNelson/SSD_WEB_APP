@@ -57,16 +57,21 @@ with st.sidebar:
             if st.session_state.search_term:
                 search_results = search_chemicals_in_db(db, st.session_state.search_term)
 
-            # --- THE FINAL FIX IS HERE ---
-            # Combine search results with already selected chemicals to prevent the error.
-            # This ensures that selected items always appear in the options list.
-            combined_options = sorted(list(set(search_results + st.session_state.selected_chemicals)))
-            # --- END OF FIX ---
+            # --- "SELECT ALL" FUNCTIONALITY RESTORED HERE ---
+            select_all = st.checkbox("Select all search results")
+            
+            default_selection = st.session_state.selected_chemicals
+            if select_all:
+                # If checked, the default becomes all current search results
+                default_selection = search_results
+            # --- END OF RESTORED FUNCTIONALITY ---
 
+            combined_options = sorted(list(set(search_results + st.session_state.selected_chemicals)))
+            
             st.session_state.selected_chemicals = st.multiselect(
                 "Select from results",
-                options=combined_options, # Use the combined list
-                default=st.session_state.selected_chemicals
+                options=combined_options,
+                default=default_selection # Use the dynamically set default
             )
 
     else: # Upload CSV
@@ -96,7 +101,7 @@ with st.sidebar:
 if run_button:
     if data_source == 'Database Search' and st.session_state.selected_chemicals and db:
         st.session_state.data = fetch_data_for_chemicals(db, st.session_state.selected_chemicals)
-        if 'species_group' in st.session_state.data.columns:
+        if st.session_state.data is not None and 'species_group' in st.session_state.data.columns:
             st.session_state.data['broad_group'] = st.session_state.data['species_group'].apply(map_taxonomic_group)
 
     if st.session_state.data is not None and not st.session_state.data.empty:
