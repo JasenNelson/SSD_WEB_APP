@@ -8,8 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 import streamlit as st
 import pandas as pd
 from ssd_core import run_ssd_analysis
-from database import initialize_supabase, fetch_all_chemicals, fetch_data_for_chemicals
-# --- CORRECTED IMPORT NAME HERE ---
+from database import initialize_supabase, search_chemicals_in_db, fetch_data_for_chemicals
 from ui_components import create_ssd_plot
 from utils import map_taxonomic_group
 
@@ -29,6 +28,8 @@ if 'data' not in st.session_state:
     st.session_state.data = None
 if 'selected_chemicals' not in st.session_state:
     st.session_state.selected_chemicals = []
+if 'search_term' not in st.session_state:
+    st.session_state.search_term = ""
 
 # --- Main App UI ---
 st.title("Species Sensitivity Distribution (SSD) Generator")
@@ -45,13 +46,27 @@ with st.sidebar:
     )
 
     if data_source == 'Database Search':
+        # --- RESTORED INTERACTIVE SEARCH LOGIC ---
         if db:
-            chemical_list = fetch_all_chemicals(db)
+            # 1. Create a text input for the user to type their search
+            st.session_state.search_term = st.text_input(
+                "Search for a chemical", 
+                value=st.session_state.search_term,
+                placeholder="e.g., Copper"
+            )
+
+            search_results = []
+            # 2. Only search the database if the user has typed something
+            if st.session_state.search_term:
+                search_results = search_chemicals_in_db(db, st.session_state.search_term)
+
+            # 3. The multiselect options are now the DYNAMIC search results
             st.session_state.selected_chemicals = st.multiselect(
-                "Select Chemicals",
-                options=chemical_list,
+                "Select from search results",
+                options=search_results,
                 default=st.session_state.selected_chemicals
             )
+        # --- END OF RESTORED LOGIC ---
 
     else: # Upload CSV
         uploaded_file = st.file_uploader("Upload your data", type=["csv"])
@@ -62,17 +77,17 @@ with st.sidebar:
             st.success("File uploaded successfully!")
 
     st.header("SSD Parameters")
-    water_type = st.radio("Media Type", ('Freshwater', 'Marine'), horizontal=True, key='media_type')
-    agg_method = st.selectbox("Species Aggregation", ('Geometric Mean', 'Most Sensitive'), key='agg_method')
-    analysis_mode = st.selectbox("Analysis Mode", ('Model Averaging', 'Single Distribution'), key='analysis_mode')
+    water_type = st.radio("Media Type", ('Freshwater', 'Marine'), horizontal=True)
+    agg_method = st.selectbox("Species Aggregation", ('Geometric Mean', 'Most Sensitive'))
+    analysis_mode = st.selectbox("Analysis Mode", ('Model Averaging', 'Single Distribution'))
 
     selected_dist = None
     if analysis_mode == 'Single Distribution':
-        selected_dist = st.selectbox("Select Distribution", ('Log-Normal', 'Log-Logistic', 'Weibull', 'Gamma'), key='selected_dist')
+        selected_dist = st.selectbox("Select Distribution", ('Log-Normal', 'Log-Logistic', 'Weibull', 'Gamma'))
 
     st.header("Protection Level")
-    p_value = st.slider("HCp Percentile (p-value)", 0.01, 0.50, 0.05, 0.01, key='p_value')
-    n_boot = st.number_input("Bootstrap Iterations", 100, 5000, 1000, 100, key='n_boot')
+    p_value = st.slider("HCp Percentile (p-value)", 0.01, 0.50, 0.05, 0.01)
+    n_boot = st.number_input("Bootstrap Iterations", 100, 5000, 1000, 100)
 
     run_button = st.button("Generate SSD", type="primary")
 
@@ -124,8 +139,7 @@ if run_button:
             tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary & Plot", "📈 Model Diagnostics", "📋 Final Data", "📝 Processing Log"])
 
             with tab1:
-                # --- CORRECTED FUNCTION CALL HERE ---
-                st.plotly_chart(create_ssd_plot(results['plot_data']), use_container_width=True)
+                st.plotly_chart(create_ssd_plot(results['plot_data'], hcp_val, "mg/L", f"SSD for {', '.join(st.session_state.selected_chemicals)}"), use_container_width=True)
             with tab2:
                 st.dataframe(results['results_df'])
             with tab3:
