@@ -1,6 +1,7 @@
 # ssd_app.py
 
-# This block ensures that local modules can be found reliably.
+# This block explicitly adds the app's root directory to the Python path
+# to ensure local modules can always be found reliably.
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -47,6 +48,7 @@ with st.sidebar:
 
     if data_source == 'Database Search':
         if db:
+            # 1. Restore the text input for the user to type their search
             st.session_state.search_term = st.text_input(
                 "Search for a chemical", 
                 value=st.session_state.search_term,
@@ -54,32 +56,31 @@ with st.sidebar:
             )
 
             search_results = []
+            # 2. Only search the database if the user has typed something
             if st.session_state.search_term:
                 search_results = search_chemicals_in_db(db, st.session_state.search_term)
 
-            # --- "SELECT ALL" FUNCTIONALITY RESTORED HERE ---
+            # 3. Restore "Select All" functionality
             select_all = st.checkbox("Select all search results")
             
+            # 4. Handle default selection logic correctly
             default_selection = st.session_state.selected_chemicals
             if select_all:
-                # If checked, the default becomes all current search results
                 default_selection = search_results
-            # --- END OF RESTORED FUNCTIONALITY ---
 
+            # 5. Fix the StreamlitAPIException by ensuring options always contain the default
             combined_options = sorted(list(set(search_results + st.session_state.selected_chemicals)))
             
             st.session_state.selected_chemicals = st.multiselect(
                 "Select from results",
                 options=combined_options,
-                default=default_selection # Use the dynamically set default
+                default=default_selection
             )
 
     else: # Upload CSV
         uploaded_file = st.file_uploader("Upload your data", type=["csv"])
         if uploaded_file:
             st.session_state.data = pd.read_csv(uploaded_file)
-            if 'species_group' in st.session_state.data.columns:
-                st.session_state.data['broad_group'] = st.session_state.data['species_group'].apply(map_taxonomic_group)
             st.success("File uploaded successfully!")
 
     st.header("SSD Parameters")
@@ -99,17 +100,28 @@ with st.sidebar:
 
 # --- Main Panel for Results ---
 if run_button:
+    # --- DATA LOADING AND PRE-PROCESSING ---
+    raw_data = None
     if data_source == 'Database Search' and st.session_state.selected_chemicals and db:
-        st.session_state.data = fetch_data_for_chemicals(db, st.session_state.selected_chemicals)
-        if st.session_state.data is not None and 'species_group' in st.session_state.data.columns:
-            st.session_state.data['broad_group'] = st.session_state.data['species_group'].apply(map_taxonomic_group)
+        raw_data = fetch_data_for_chemicals(db, st.session_state.selected_chemicals)
+    elif data_source == 'Upload CSV' and st.session_state.data is not None:
+        raw_data = st.session_state.data
 
-    if st.session_state.data is not None and not st.session_state.data.empty:
+    if raw_data is not None and not raw_data.empty:
+        
+        # --- MEDIA TYPE FILTERING LOGIC ---
+        media_code = 'FW' if water_type == 'Freshwater' else 'MW'
+        analysis_data = raw_data[raw_data['media_type'] == media_code].copy()
+        
+        # Add the broad_group column for plotting
+        if 'species_group' in analysis_data.columns:
+            analysis_data['broad_group'] = analysis_data['species_group'].apply(map_taxonomic_group)
+        
         status_box = st.status("Running SSD analysis...", expanded=True)
         progress_bar = status_box.progress(0, text="Initializing...")
 
         results, log_messages = run_ssd_analysis(
-            data=st.session_state.data,
+            data=analysis_data,
             species_col="species_scientific_name",
             value_col="conc1_mean",
             p_value=p_value,
@@ -145,8 +157,8 @@ if run_button:
             tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary & Plot", "📈 Model Diagnostics", "📋 Final Data", "📝 Processing Log"])
 
             with tab1:
-                title_chemicals = ', '.join(st.session_state.selected_chemicals) if st.session_state.selected_chemicals else "Uploaded Data"
-                st.plotly_chart(create_ssd_plot(results['plot_data'], hcp_val, "mg/L", f"SSD for {title_chemicals}"), use_container_width=True)
+                title_chemicals = ', '.join(st.session_state.selected_chemicals) if data_source == 'Database Search' and st.session_state.selected_chemicals else "Uploaded Data"
+                st.plotly_chart(create_ssd_plot(results['plot_data'], hcp_val, "mg/L", f"SSD for {title_chemicals} ({water_type})"), use_container_width=True)
             with tab2:
                 st.dataframe(results['results_df'])
             with tab3:
