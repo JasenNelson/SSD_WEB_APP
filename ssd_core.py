@@ -29,7 +29,6 @@ def _fit_single_distribution(dist_name, model_info, data, p_value):
     is_log = model_info.get('log', False)
     target_data = np.log(data) if is_log else data
     
-    # --- DEFINITIVE FIX: Restore floc=0 for non-log distributions ---
     # This ensures a correct 2-parameter fit for all models.
     params = model_info['dist'].fit(target_data, floc=0) if dist_name in ['Weibull', 'Gamma'] else model_info['dist'].fit(target_data)
     
