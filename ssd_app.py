@@ -34,7 +34,7 @@ if 'search_term' not in st.session_state:
     st.session_state.search_term = ""
 
 # --- Main App UI ---
-st.title("Species Sensitivity Distribution (SSD) Generator")
+st.title("Species Sensitivity Distribution Generator")
 st.markdown("A tool for ecotoxicological risk assessment using model-averaged SSDs.")
 
 # --- Sidebar UI ---
