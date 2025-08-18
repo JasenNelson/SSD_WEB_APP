@@ -109,6 +109,9 @@ with st.sidebar:
     st.header("Protection Level")
     p_value = st.slider("HCp Percentile (p-value)", 0.01, 0.50, 0.05, 0.01)
     n_boot = st.number_input("Bootstrap Iterations", 100, 5000, 1000, 100)
+    
+    st.header("Reproducibility")
+    random_seed = st.number_input("Random Seed (for reproducible results)", 1, 999999, 42, help="Using the same seed ensures identical results across runs. Change this to get different bootstrap samples.")
 
     run_button = st.button("Generate SSD", type="primary")
 
@@ -148,7 +151,8 @@ if run_button:
             mode=analysis_mode.lower().replace(' ', '_'),
             selected_dist=selected_dist,
             n_boot=n_boot,
-            progress_bar=progress_bar
+            progress_bar=progress_bar,
+            random_seed=random_seed
         )
         
         status_box.update(label="Analysis complete!", state="complete", expanded=False)
@@ -161,7 +165,7 @@ if run_button:
                 spec_details = {
                     "Protection Level": f"{p_value*100:.0f}% (p-value: {p_value})", "Analysis Mode": analysis_mode,
                     "Species Aggregation Method": agg_method, "Media Type Filter": water_type,
-                    "Bootstrap Iterations": f"{n_boot}"
+                    "Bootstrap Iterations": f"{n_boot}", "Random Seed": f"{random_seed}"
                 }
                 for key, value in spec_details.items(): st.markdown(f"**{key}:** `{value}`")
 
