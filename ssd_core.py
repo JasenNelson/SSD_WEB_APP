@@ -1,4 +1,4 @@
-# core_analysis.py
+# ssd_core.py
 import pandas as pd
 import numpy as np
 from scipy import stats
@@ -12,6 +12,8 @@ try:
 except AttributeError:
     pass
 
+# This structure correctly uses log-transformation for log-distributions
+# and applies the necessary Jacobian correction for AICc comparison.
 DISTRIBUTIONS = {
     'Log-Normal':   {'dist': stats.norm, 'k': 2, 'log': True},
     'Log-Logistic': {'dist': stats.logistic, 'k': 2, 'log': True},
@@ -20,18 +22,28 @@ DISTRIBUTIONS = {
 }
 
 def _fit_single_distribution(dist_name, model_info, data, p_value):
+    """
+    Fits a single distribution. Handles log-transformation and Jacobian correction
+    to ensure all model AICc values are comparable.
+    """
     is_log = model_info.get('log', False)
     target_data = np.log(data) if is_log else data
     
-    params = model_info['dist'].fit(target_data)
+    # This ensures a correct 2-parameter fit for all models.
+    params = model_info['dist'].fit(target_data, floc=0) if dist_name in ['Weibull', 'Gamma'] else model_info['dist'].fit(target_data)
     
+    # Calculate log-likelihood based on the fit
     log_likelihood = np.sum(model_info['dist'].logpdf(target_data, *params))
     
+    # CRITICAL: Apply Jacobian correction for models fit on log-transformed data
     if is_log:
         log_likelihood -= np.sum(np.log(data))
 
     aicc = calculate_aicc(model_info['k'], log_likelihood, len(data))
+    
+    # Calculate HCp, converting back from log-scale if necessary
     hcp = np.exp(model_info['dist'].ppf(p_value, *params)) if is_log else model_info['dist'].ppf(p_value, *params)
+    
     ks_stat, ks_pvalue = stats.kstest(target_data, model_info['dist'].cdf, args=params)
     ad_stat = np.nan 
 
@@ -51,19 +63,18 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='average', sele
         try:
             fit = _fit_single_distribution(name, DISTRIBUTIONS[name], valid_data, p_value)
             if not fit or not np.isfinite(fit['hcp']) or fit['hcp'] <= 0:
-                log_messages.append(f"Warning: Could not derive a valid positive HCp for '{name}'. Excluding.")
+                log_messages.append(f"Warning: Could not derive a valid positive HCp for the '{name}' distribution. It will be excluded.")
                 continue
             model_fits.append(fit)
         except Exception as e:
-            log_messages.append(f"Warning: Could not fit '{name}'. Excluding. Details: {e}")
+            log_messages.append(f"Warning: Could not fit '{name}' to the original data. It will be excluded. Details: {e}")
     if not model_fits: return None, ["Failed to fit any valid distributions to the data."]
     
     results_df = pd.DataFrame(model_fits)
-    
-      
     results_df['weight'] = 1.0 if mode == 'single' else np.exp(-0.5 * (results_df['aicc'] - results_df['aicc'].min())) / np.sum(np.exp(-0.5 * (results_df['aicc'] - results_df['aicc'].min())))
     final_hcp = np.sum(results_df['weight'] * results_df['hcp'])
 
+    # Standard non-parametric bootstrap
     boot_hcps, boot_cdfs = [], []
     x_range_log = np.linspace(np.log(valid_data.min()) * 0.9, np.log(valid_data.max()) * 1.1, 200)
     
