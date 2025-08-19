@@ -32,6 +32,13 @@ def _fit_single_distribution(dist_name, model_info, data, p_value):
     # This ensures a correct 2-parameter fit for all models.
     params = model_info['dist'].fit(target_data, floc=0) if dist_name in ['Weibull', 'Gamma'] else model_info['dist'].fit(target_data)
     
+    # --- DEBUGGING CANARY ---
+    # This will print to the Streamlit log for every distribution that is fit.
+    print(f"--- DEBUG: FIT PARAMS for {dist_name} ---")
+    print(f"Params: {params}")
+    print("-----------------------------------------")
+    # --- END DEBUGGING ---
+    
     # Calculate log-likelihood based on the fit
     log_likelihood = np.sum(model_info['dist'].logpdf(target_data, *params))
     
