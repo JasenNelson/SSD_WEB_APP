@@ -47,8 +47,8 @@ def create_ssd_plot(plot_data, hcp, unit, title):
         title=title, 
         xaxis_title=f'Concentration ({unit})', 
         yaxis_title='Percent of Species Affected (%)', 
-        xaxis=dict(type="log", showgrid=False),
-        yaxis=dict(range=[0, 100], showgrid=False), 
+        xaxis=dict(type="log", showgrid=False, showline=True, linecolor='black', linewidth=1),
+        yaxis=dict(range=[0, 100], showgrid=False, showline=True, linecolor='black', linewidth=1), 
         legend_title='Legend', 
         template='plotly_white'
     )
