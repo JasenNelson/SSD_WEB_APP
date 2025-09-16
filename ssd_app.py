@@ -177,8 +177,11 @@ if run_button:
                 st.dataframe(results['results_df'])
             with tab3:
                 plot_df_data = results['plot_data']
-                final_df = pd.DataFrame({'Species': plot_df_data['species'], 'Group': plot_df_data['groups'], 'Value (mg/L)': plot_df_data['empirical_values'], 'Percentile': plot_df_data['empirical_cdf_percent']})
-                st.dataframe(final_df)
+                if plot_df_data is not None:
+                    final_df = pd.DataFrame({'Species': plot_df_data['species'], 'Group': plot_df_data['groups'], 'Value (mg/L)': plot_df_data['empirical_values'], 'Percentile': plot_df_data['empirical_cdf_percent']})
+                    st.dataframe(final_df)
+                else:
+                    st.error("Plot data is not available.")
             with tab4:
                 if log_messages:
                     for msg in log_messages: st.warning(msg)
