@@ -43,7 +43,15 @@ def create_ssd_plot(plot_data, hcp, unit, title):
     p_value_percent = plot_data['p_value'] * 100
     if hcp is not None and hcp > 0: fig.add_trace(go.Scatter(x=[hcp], y=[p_value_percent], mode='markers', marker=dict(color='gold', size=14, symbol='star', line=dict(color='black', width=1)), name=f'HC{p_value_percent:.0f}'))
     
-    fig.update_layout(title=title, xaxis_title=f'Concentration ({unit})', yaxis_title='Percent of Species Affected (%)', xaxis_type="log", yaxis=dict(range=[0, 100]), legend_title='Legend', template='plotly_white')
+    fig.update_layout(
+        title=title, 
+        xaxis_title=f'Concentration ({unit})', 
+        yaxis_title='Percent of Species Affected (%)', 
+        xaxis=dict(type="log", showgrid=True, gridcolor='lightgray'),
+        yaxis=dict(range=[0, 100], showgrid=True, gridcolor='lightgray'), 
+        legend_title='Legend', 
+        template='plotly_white'
+    )
     return fig
 
 def render_diagnostics_table(results_df, hcp_percentile):
