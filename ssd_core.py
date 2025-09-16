@@ -147,6 +147,14 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='model_averagin
         final_avg_cdf += row['weight'] * cdf_vals
 
     full_data = data.sort_values(by=value_col)
-    plot_data = {'empirical_values': full_data[value_col].values, 'empirical_cdf_percent': (np.arange(1, len(full_data) + 1) / (len(full_data) + 1)) * 100, 'fitted_x_range': np.exp(x_range_log), 'fitted_y_cdf_percent': final_avg_cdf * 100, 'lower_ci_percent': lower_ci_curve * 100, 'upper_ci_percent': upper_ci_curve * 100, 'species': full_data[species_col].tolist(), 'groups': full_data['broad_group'].tolist(), 'p_value': p_value}
+    empirical_cdf_percent = (np.arange(1, len(full_data) + 1) / (len(full_data) + 1)) * 100
+    
+    # Cap the fitted curve at the empirical maximum to prevent overshooting
+    empirical_max = np.max(empirical_cdf_percent)
+    final_avg_cdf = np.minimum(final_avg_cdf * 100, empirical_max)
+    lower_ci_curve = np.minimum(lower_ci_curve * 100, empirical_max)
+    upper_ci_curve = np.minimum(upper_ci_curve * 100, empirical_max)
+    
+    plot_data = {'empirical_values': full_data[value_col].values, 'empirical_cdf_percent': empirical_cdf_percent, 'fitted_x_range': np.exp(x_range_log), 'fitted_y_cdf_percent': final_avg_cdf, 'lower_ci_percent': lower_ci_curve, 'upper_ci_percent': upper_ci_curve, 'species': full_data[species_col].tolist(), 'groups': full_data['broad_group'].tolist(), 'p_value': p_value}
     final_results = {'hcp': final_hcp, 'hcp_ci_lower': hcp_ci_lower, 'hcp_ci_upper': hcp_ci_upper, 'results_df': results_df, 'plot_data': plot_data}
     return final_results, log_messages
