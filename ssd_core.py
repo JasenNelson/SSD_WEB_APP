@@ -102,7 +102,10 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='model_averagin
 
     # Standard non-parametric bootstrap
     boot_hcps, boot_cdfs = [], []
-    x_range_log = np.linspace(np.log(valid_data.min()) * 0.9, np.log(valid_data.max()) * 1.1, 200)
+    # Extend x-range to ensure it covers the HC5 area and beyond
+    min_val = valid_data.min()
+    max_val = valid_data.max()
+    x_range_log = np.linspace(np.log(min_val) - 2, np.log(max_val) + 2, 200)
     
     for i in range(n_boot):
         try:
@@ -125,7 +128,12 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='model_averagin
             
             b_avg_cdf = np.zeros_like(x_range_log)
             for _, row in b_results_df.iterrows():
-                cdf_vals = row['dist_obj'].cdf(x_range_log, *row['params']) if row['is_log'] else row['dist_obj'].cdf(np.exp(x_range_log), *row['params'])
+                if row['is_log']:
+                    # For log-transformed distributions, use log-transformed x-range
+                    cdf_vals = row['dist_obj'].cdf(x_range_log, *row['params'])
+                else:
+                    # For non-log distributions, use original scale x-range
+                    cdf_vals = row['dist_obj'].cdf(np.exp(x_range_log), *row['params'])
                 b_avg_cdf += row['weight'] * cdf_vals
             boot_cdfs.append(b_avg_cdf)
             
@@ -143,7 +151,12 @@ def run_ssd_analysis(data, species_col, value_col, p_value, mode='model_averagin
     
     final_avg_cdf = np.zeros_like(x_range_log)
     for _, row in results_df.iterrows():
-        cdf_vals = row['dist_obj'].cdf(x_range_log, *row['params']) if row['is_log'] else row['dist_obj'].cdf(np.exp(x_range_log), *row['params'])
+        if row['is_log']:
+            # For log-transformed distributions, use log-transformed x-range
+            cdf_vals = row['dist_obj'].cdf(x_range_log, *row['params'])
+        else:
+            # For non-log distributions, use original scale x-range
+            cdf_vals = row['dist_obj'].cdf(np.exp(x_range_log), *row['params'])
         final_avg_cdf += row['weight'] * cdf_vals
 
     full_data = data.sort_values(by=value_col)
